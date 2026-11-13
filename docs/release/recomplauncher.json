@@ -1,0 +1,125 @@
+{
+  "$schema": "https://recomplauncher.com/schema/recomplauncher.json",
+  "format": 1,
+  "name": "WWE WrestleMania XIX Recomp",
+  "repo": "Spaced1127/WMXIX-Static-Recomp",
+  "game": {
+    "kind": "iso",
+    "label": "Your own USA GameCube disc image (.iso) of WWE WrestleMania XIX (GW9E78).",
+    "dumps": [
+      {
+        "name": "USA",
+        "size": 1459978240,
+        "crc32": "635116c6"
+      }
+    ]
+  },
+  "prepare": {
+    "program": ["launcher.exe"],
+    "args": ["--extract", "{game}"],
+    "label": "Extracting the game files from your disc",
+    "timeout": 1200
+  },
+  "start": {
+    "program": ["game.exe"],
+    "args": [
+      "--game", "{install}/game_data",
+      "--module", "{install}/gGW9E78_recomp.dll",
+      "--user-dir", "{local}/WMXIX"
+    ]
+  },
+  "config": [
+    {
+      "id": "video",
+      "format": "ini",
+      "file": [{ "path": "{local}/WMXIX/config.ini" }],
+      "ensure": {
+        "resolution": "1920x1080",
+        "backend": "Vulkan",
+        "fullscreen": "true",
+        "show_fps_in_title": "false"
+      },
+      "new": {
+        "resolution": "1920x1080",
+        "backend": "Vulkan",
+        "fullscreen": "true",
+        "show_fps_in_title": "false"
+      }
+    },
+    {
+      "id": "core",
+      "format": "ini",
+      "file": [{ "path": "{local}/WMXIX/Config/Dolphin.ini" }],
+      "ensure": {
+        "Core/EmulationSpeed": "1",
+        "Core/StaticRecompIdlePC": "2150087204"
+      },
+      "always": {
+        "Core/EmulationSpeed": "1",
+        "Core/StaticRecompIdlePC": "2150087204"
+      }
+    }
+  ],
+  "settings": [
+    {
+      "id": "core",
+      "label": "CPU core",
+      "in": "args",
+      "help": "Static recomp is the native build this port is made of. JIT is Dolphin's emulator core and is much faster in 4-wrestler matches.",
+      "choices": [
+        { "label": "Static recomp (native)", "args": [] },
+        { "label": "JIT (faster in heavy matches)", "args": ["--core", "jit"] }
+      ]
+    },
+    {
+      "id": "resolution",
+      "label": "Resolution",
+      "in": "video",
+      "help": "Internal render resolution. The GameCube renders at 640x528; higher scales sharpen 3D.",
+      "choices": [
+        { "label": "1x (640x528)", "set": { "resolution": "640x528" } },
+        { "label": "2x (1280x720)", "set": { "resolution": "1280x720" } },
+        { "label": "3x (1920x1080)", "set": { "resolution": "1920x1080" } },
+        { "label": "4x (2560x1440)", "set": { "resolution": "2560x1440" } }
+      ],
+      "defaults": { "resolution": "1920x1080" }
+    },
+    {
+      "id": "window",
+      "label": "Window",
+      "in": "video",
+      "help": "Fullscreen or windowed.",
+      "choices": [
+        { "label": "Fullscreen", "set": { "fullscreen": "true" } },
+        { "label": "Windowed", "set": { "fullscreen": "false" } }
+      ],
+      "defaults": { "fullscreen": "true" }
+    },
+    {
+      "id": "fps",
+      "label": "FPS counter",
+      "in": "video",
+      "help": "Show the frame rate in the window title.",
+      "choices": [
+        { "label": "Show", "set": { "show_fps_in_title": "true" } },
+        { "label": "Hide", "set": { "show_fps_in_title": "false" } }
+      ],
+      "defaults": { "show_fps_in_title": "false" }
+    }
+  ],
+  "saves": [
+    "{local}/WMXIX/GC"
+  ],
+  "folders": {
+    "saves": [{ "path": "{local}/WMXIX/GC" }],
+    "logs": [{ "path": "{local}/WMXIX/Logs" }]
+  },
+  "actions": [
+    { "id": "saves", "label": "Memory cards", "open": "saves" },
+    { "id": "logs", "label": "Logs", "open": "logs" }
+  ],
+  "exit_codes": {
+    "1": "The game could not start. Check the Logs folder.",
+    "2": "The game could not find its extracted files. Run setup again."
+  }
+}

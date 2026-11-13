@@ -1,0 +1,42 @@
+# --- game data: never commit ---
+work/
+dist/
+game_data/
+*.iso
+*.rvz
+*.wbfs
+*.gcm
+*.dol
+*.rel
+*.sel
+*.dff
+*.gci
+*.sav
+*.state
+extracted/
+Game/
+files/
+
+# --- upstream source: clone into lib/ (see README) ---
+lib/
+
+# --- build output ---
+build/
+generated/
+*.dll
+*.lib
+*.exp
+*.obj
+*.pdb
+*.ilk
+*.exe
+*.profraw
+*.profdata
+*.profdata.*
+
+# --- third-party art downloaded from SteamGridDB (not redistributable) ---
+assets_src/
+
+# --- tool state ---
+tools/_guide/
+.external/

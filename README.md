@@ -1,5 +1,7 @@
 # WWE WrestleMania XIX — GameCube static recompilation
 
+<a href="https://recomplauncher.com/game/wmxix-static-recomp"><picture><source media="(prefers-color-scheme: dark)" srcset="https://recomplauncher.com/assets/press/launcher/badge-light.svg"><img alt="Get it on RecompLauncher" src="https://recomplauncher.com/assets/press/launcher/badge-dark.svg" height="48"></picture></a>
+
 A native Windows port of the retail GameCube release (`GW9E78`), produced by
 statically recompiling the game's PowerPC executable with
 [DolRecomp](https://github.com/ExpansionPak/DolRecomp) and running it on a

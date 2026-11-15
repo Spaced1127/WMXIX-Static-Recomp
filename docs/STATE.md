@@ -296,6 +296,19 @@ for close, the wait is in place but the timeout-kill is not.
 
 ## Controller support
 
+Profiles are created by **both** programs, because RecompLauncher starts
+`game.exe` directly and never runs `launcher.exe`:
+
+- `launcher.exe` writes `GCPadNew.ini` when a pad is chosen (Controller page or
+  PLAY), with a Button layout override.
+- `game.exe` calls `EnsureControllerProfile()` at startup: if
+  `Config\GCPadNew.ini` is missing it enumerates SDL gamepads, writes the first
+  one as `SDL/<index>/<name>`, and `Pad::Initialize` picks it up.
+
+Verified from a clean packaged install: `game.exe --user-dir <empty>` created
+`Device = SDL/0/Xbox One Controller`, and the runtime reported
+`pad0 default device='SDL/0/Xbox One Controller'` with `connected=1`.
+
 `GenerateControllerConfig` is layout-aware. SDL normalises pads positionally, so
 Xbox, PlayStation, Steam Deck, 8BitDo and generic DirectInput pads all use the
 same body; Nintendo pads (Switch Pro, Joy-Con) get A/B and X/Y swapped so the

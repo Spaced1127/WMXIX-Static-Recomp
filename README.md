@@ -46,7 +46,14 @@ arguments boots `game_data/` beside itself.
 git clone https://github.com/ExpansionPak/ModernGekko-Template.git lib/ModernGekko-Template
 cd lib/ModernGekko-Template
 git submodule update --init --recursive
+cd ../..
+powershell -File tools\apply-patches.ps1
 ```
+
+`patched/` holds this project's runtime changes (launcher shell and theme,
+layout-aware controller profiles, `game.exe` pad bootstrap, `--core`, the
+non-ANSI filename fix, exe icons). `apply-patches.ps1` copies them over the
+fresh clone.
 
 ### 2. Configure and build the tools
 

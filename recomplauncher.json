@@ -1,0 +1,68 @@
+{
+    "$schema": "https://recomplauncher.com/schema/recomplauncher.json",
+    "format": 1,
+    "name": "WMXIX Static Recomp",
+    "repo": "Spaced1127/WMXIX-Static-Recomp",
+    "game": {
+        "kind": "iso",
+        "label": "Your disc image (.iso) of the USA release of WWE WrestleMania XIX for GameCube, disc ID GW9E78. RVZ files don't work; convert to ISO first.",
+        "check": {
+            "ids": [
+                "GW9E78"
+            ]
+        },
+        "dumps": [
+            {
+                "name": "USA",
+                "size": 1459978240,
+                "crc32": "635116c6"
+            }
+        ]
+    },
+    "prepare": {
+        "program": [
+            "launcher.exe"
+        ],
+        "args": [
+            "--extract",
+            "{game}"
+        ],
+        "label": "Extracting your disc into game_data",
+        "timeout": 600
+    },
+    "start": {
+        "program": [
+            "game.exe"
+        ]
+    },
+    "saves": [
+        "{local}/WMXIX/GC",
+        "{local}/WMXIX/StateSaves"
+    ],
+    "folders": {
+        "saves": [
+            {
+                "path": "{local}/WMXIX/GC"
+            }
+        ],
+        "logs": [
+            {
+                "path": "{local}/WMXIX/Logs"
+            }
+        ]
+    },
+    "actions": [
+        {
+            "id": "saves",
+            "label": "Saves",
+            "help": "Your memory card files.",
+            "open": "saves"
+        },
+        {
+            "id": "logs",
+            "label": "Logs",
+            "help": "The game's log files.",
+            "open": "logs"
+        }
+    ]
+}

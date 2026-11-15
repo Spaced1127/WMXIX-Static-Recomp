@@ -9,7 +9,10 @@ These are Dolphin-format `GCPadNew.ini` profiles. The runtime reads
 | `GCPadNew.xbox-series.ini` | Xbox Series X | `SDL/0/Xbox Series X Controller` |
 | `GCPadNew.xbox-360.ini` | Xbox 360 | `SDL/0/Xbox 360 Controller` |
 | `GCPadNew.dualsense.ini` | DualSense (PS5) | `SDL/0/DualSense Wireless Controller` |
+| `GCPadNew.dualsense-edge.ini` | DualSense Edge (PS5) | `SDL/0/DualSense Edge Wireless Controller` |
 | `GCPadNew.dualsense-menu.ini` | DualSense, D-pad = menus | `SDL/0/DualSense Wireless Controller` |
+| `GCPadNew.xbox-elite.ini` | Xbox Elite Series 1 | `SDL/0/Xbox One Elite Controller` |
+| `GCPadNew.xbox-elite2.ini` | Xbox Elite Series 2 | `SDL/0/Xbox One Elite 2 Controller` |
 | `GCPadNew.dualshock4.ini` | DualShock 4 (PS4) | `SDL/0/Wireless Controller` |
 | `GCPadNew.dualshock3.ini` | DualShock 3 (PS3) | `SDL/0/PS3 Controller` |
 | `GCPadNew.switch-pro.ini` | Switch Pro | `SDL/0/Nintendo Switch Pro Controller` |

@@ -1,4 +1,5 @@
 #include "cache_affinity.hpp"
+#include "controller_mapping.hpp"
 #include "frontend_config.hpp"
 #include "dol_patch.hpp"
 #include "moderngekko/game.hpp"
@@ -45,39 +46,102 @@ volatile std::sig_atomic_t s_stop_requested = 0;
 void HandleStopSignal(int) { s_stop_requested = 1; }
 
 // A fresh RecompLauncher install never opens the custom launcher, so no
-// GCPadNew.ini exists. Detect the first SDL gamepad once and generate the same
-// profile the launcher would have made.
-void EnsureDefaultControllerConfig(const std::filesystem::path &user_directory) {
-  if (moderngekko::frontend::ControllerConfigExists(user_directory))
+// Test hook: attach an SDL virtual gamepad with a chosen USB vendor/product so
+// the GUID path can be exercised without hardware.
+//   MODERNGEKKO_TEST_PAD="0DF2:054C:DualSense Edge"
+void AttachTestPadFromEnv() {
+  const char *spec = std::getenv("MODERNGEKKO_TEST_PAD");
+  if (!spec || !*spec)
     return;
+  unsigned pid = 0, vid = 0;
+  char name[128] = {};
+  if (std::sscanf(spec, "%x:%x:%127[^:]", &pid, &vid, name) < 2)
+    return;
+  SDL_VirtualJoystickDesc desc{};
+  SDL_INIT_INTERFACE(&desc);
+  desc.type = SDL_JOYSTICK_TYPE_GAMEPAD;
+  desc.naxes = SDL_GAMEPAD_AXIS_COUNT;
+  desc.nbuttons = SDL_GAMEPAD_BUTTON_COUNT;
+  desc.vendor_id = static_cast<Uint16>(vid);
+  desc.product_id = static_cast<Uint16>(pid);
+  desc.name = name[0] ? name : "Virtual Gamepad";
+  if (SDL_AttachVirtualJoystick(&desc) < 0)
+    std::cerr << "controller: virtual pad attach failed: " << SDL_GetError() << '\n';
+}
+
+// GCPadNew.ini exists. Detect the connected SDL gamepads once, build the profile
+// the launcher would have made, and print one line players can paste into a
+// report: name, GUID, resolved layout.
+void EnsureDefaultControllerConfig(const std::filesystem::path &user_directory) {
   if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) {
     std::cerr << "controller: SDL init failed: " << SDL_GetError() << '\n';
     return;
   }
+  AttachTestPadFromEnv();
 
+  std::vector<std::string> devices;
+  std::vector<std::string> guids;
   int count = 0;
   SDL_JoystickID *ids = SDL_GetJoysticks(&count);
-  std::cerr << "controller: " << count << " SDL joystick(s) detected\n";
-  std::string device;
+  std::unordered_map<std::string, int> seen;
   if (ids) {
     for (int i = 0; i < count; ++i) {
       if (!SDL_IsGamepad(ids[i]))
         continue;
-      const char *name = SDL_GetGamepadNameForID(ids[i]);
-      if (name && *name) {
-        device = "SDL/0/" + std::string(name);
-        break;
-      }
+      const char *raw = SDL_GetGamepadNameForID(ids[i]);
+      const std::string name = raw && *raw ? raw : "Gamepad";
+      char guid_text[33] = {};
+      SDL_GUIDToString(SDL_GetJoystickGUIDForID(ids[i]), guid_text,
+                       sizeof(guid_text));
+      devices.push_back("SDL/" + std::to_string(seen[name]++) + "/" + name);
+      guids.emplace_back(guid_text);
     }
+    SDL_free(ids);
   }
-  SDL_free(ids);
+  std::cerr << "controller: " << devices.size() << " SDL gamepad(s) detected\n";
 
-  if (!device.empty()) {
-    std::string message;
-    if (moderngekko::frontend::GenerateControllerConfig(user_directory, device,
-                                                         &message))
-      std::cerr << "controller configuration: " << message << '\n';
+  if (devices.empty()) {
+    SDL_Quit();
+    return;
   }
+
+  const auto mapping =
+      DetectControllerMapping(guids.front());
+  const auto detected =
+      moderngekko::frontend::DetectControllerLayout(devices.front(), guids.front());
+
+  if (!moderngekko::frontend::ControllerConfigExists(user_directory)) {
+    std::string message;
+    if (moderngekko::frontend::GenerateControllerConfig(
+            user_directory, devices, guids, &message, detected, mapping.dpad_reversed))
+      std::cerr << "controller configuration: " << message << '\n';
+  } else if (moderngekko::frontend::ControllerConfigNeedsMigration(user_directory,
+                                                                  detected)) {
+    std::string message;
+    if (moderngekko::frontend::GenerateControllerConfig(
+            user_directory, devices, guids, &message, detected,
+            mapping.dpad_reversed))
+      std::cerr << "controller configuration migrated: " << message << '\n';
+  }
+
+  std::cerr << "[input] pad0 name=\""
+            << devices.front().substr(devices.front().find('/', 5) + 1)
+            << "\" guid=" << guids.front()
+            << " layout=" << moderngekko::frontend::ControllerLayoutLabel(detected)
+            << (detected == moderngekko::frontend::ControllerLayout::Nintendo
+                    ? " buttons=swapped"
+                    : " buttons=normal")
+            << (mapping.dpad_reversed ? " dpad=swapped" : " dpad=normal") << std::endl;
+
+  const auto layout =
+      moderngekko::frontend::DetectControllerLayout(devices.front(), guids.front());
+  std::cerr << "[input] pad0 name=\"" << devices.front().substr(devices.front().find('/', 5) + 1)
+            << "\" guid=" << guids.front()
+            << " layout=" << moderngekko::frontend::ControllerLayoutLabel(layout)
+            << (layout == moderngekko::frontend::ControllerLayout::Nintendo
+                    ? " buttons=swapped dpad=normal"
+                    : " buttons=normal dpad=normal")
+            << std::endl;
   SDL_Quit();
 }
 
@@ -167,34 +231,8 @@ std::filesystem::path ExecutableDirectory(const char *argv0) {
 
 // RecompLauncher runs the game executable directly, so no front end has written
 // a pad profile. Build one from the connected SDL gamepad so input works out of
-// the box. Existing profiles are never touched.
-void EnsureControllerProfile(const std::filesystem::path &user_directory) {
-  if (moderngekko::frontend::ControllerConfigExists(user_directory))
-    return;
-  if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD))
-    return;
-  std::vector<std::string> devices;
-  int count = 0;
-  SDL_JoystickID *ids = SDL_GetJoysticks(&count);
-  if (ids) {
-    std::unordered_map<std::string, int> seen;
-    for (int i = 0; i < count; ++i) {
-      const SDL_JoystickID id = ids[i];
-      if (!SDL_IsGamepad(id))
-        continue;
-      const char *raw = SDL_GetGamepadNameForID(id);
-      const std::string name = raw && *raw ? raw : "Gamepad";
-      devices.push_back("SDL/" + std::to_string(seen[name]++) + "/" + name);
-    }
-    SDL_free(ids);
-  }
-  if (devices.empty())
-    return;
-  std::string message;
-  if (moderngekko::frontend::GenerateControllerConfig(user_directory, devices,
-                                                      &message))
-    std::cout << "[input] " << message << '\n';
-}
+// the box. Existing profiles are never touched. Always reports what it found so
+// players can paste one line into a bug report.
 } // namespace
 
 int RunMain(int argc, char **argv) {
@@ -327,7 +365,6 @@ int RunMain(int argc, char **argv) {
   // RecompLauncher starts this executable directly, so the launcher never gets
   // a chance to write a pad profile. Generate one from the connected SDL pad on
   // first run; the launcher path still overwrites it when it runs.
-  EnsureControllerProfile(config.user_directory);
   if (core_mode.empty())
     core_mode = frontend_config.cpu_core;
 #if defined(_WIN32)

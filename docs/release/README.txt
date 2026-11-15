@@ -18,18 +18,18 @@ Requirements
 ------------
 - Windows 10/11 x64
 - A Vulkan-capable GPU (OpenGL also works)
-- Your own WWE WrestleMania XIX (USA) disc image, .iso
+- Your own WWE WrestleMania XIX (USA) disc image, .iso or .rvz
   Redump USA dump: 1,459,978,240 bytes, CRC-32 635116c6
 
-A compressed .rvz is not accepted by setup. Convert it first:
-  DolphinTool convert -i game.rvz -o game.iso -f iso
+RVZ is supported directly. Setup reads the Dolphin RVZ container natively and
+extracts the same files an ISO produces, so there is no conversion step.
 
 
 First run
 ---------
 Double-click launcher.exe.
 
-1. Browse for your ISO.
+1. Browse for your ISO or RVZ.
 2. Setup extracts it into game_data\ next to the executables and shows
    progress.
 3. The launcher shows Ready.

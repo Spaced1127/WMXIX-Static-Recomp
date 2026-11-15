@@ -33,7 +33,8 @@ defaults/           14 controller profiles + config.play.ini
 backdrop.bmp logo.bmp icon.bmp theme.ini   launcher art and strings
 ```
 
-`launcher.exe --extract <iso>` performs headless setup. `game.exe` with no
+`launcher.exe --extract <disc>` performs headless setup and accepts `.iso` and
+`.rvz` directly. `game.exe` with no
 arguments boots `game_data/` beside itself.
 
 ## Build
@@ -70,10 +71,14 @@ and the retail DOL hash.
 ### 3. Extract the disc and compile the module
 
 ```powershell
-python tools\gcdisc.py info    work\disc\game.iso
-python tools\gcdisc.py extract work\disc\game.iso work\game
+powershell -File tools\extract-disc.ps1 -Disc work\disc\game.rvz -Out work\game
 powershell -File tools\recompile.ps1        # generated C + module DLL
 ```
+
+`extract-disc.ps1` detects the container by magic (`RVZ\x01`), reconstructs the
+ISO from RVZ with `tools\rvz_extract.py` when needed, and writes `sys/` +
+`files/`. The conversion is internal; there is no manual RVZ step. It produces a
+byte-identical ISO (`B84472A4…FCB0` for this disc) before extraction.
 
 ### 4. Optional: tuned + PGO module
 

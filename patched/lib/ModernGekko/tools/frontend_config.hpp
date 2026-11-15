@@ -69,15 +69,52 @@ bool ControllerConfigExists(const std::filesystem::path &user_directory);
 // and X/Y the other way round, which is what the Nintendo layout fixes.
 enum class ControllerLayout { Auto, Xbox, PlayStation, Nintendo, Generic };
 const char *ControllerLayoutLabel(ControllerLayout layout);
-ControllerLayout DetectControllerLayout(std::string_view device);
+
+// True when the file matches one of the auto-generated bodies, i.e. safe to
+// regenerate on a layout change. A hand-edited profile is left alone.
+bool ControllerConfigIsGenerated(const std::filesystem::path &user_directory);
+// Which generated layout the file matches, if any. Used to migrate profiles
+// written before mapping-based detection landed.
+bool MatchGeneratedControllerProfile(const std::filesystem::path &user_directory,
+                                     ControllerLayout *layout, bool *dpad_swap);
+// True when an existing auto-generated profile should be rewritten because the
+// live mapping now resolves to a Nintendo layout. Custom or manually forced
+// profiles are never migrated.
+bool ControllerConfigNeedsMigration(const std::filesystem::path &user_directory,
+                                    ControllerLayout detected);
+
+// GUID-level identification, following SDL's gamecontrollerdb semantics: the
+// SDL GUID carries the USB vendor/product, so an Edge or Elite is recognised by
+// hardware id rather than by a product name.
+struct ControllerIdentity {
+  unsigned short vendor = 0;
+  unsigned short product = 0;
+  bool has_ids = false;
+};
+ControllerIdentity ParseControllerGuid(std::string_view guid);
+ControllerLayout DetectControllerLayout(std::string_view device,
+                                        std::string_view guid = {});
 
 bool GenerateControllerConfig(const std::filesystem::path &user_directory,
                               std::span<const std::string> controllers,
+                              std::span<const std::string> guids,
                               std::string *message,
-                              ControllerLayout layout = ControllerLayout::Auto);
+                              ControllerLayout layout = ControllerLayout::Auto,
+                              bool dpad_swap = false);
+bool GenerateControllerConfig(const std::filesystem::path &user_directory,
+                              std::span<const std::string> controllers,
+                              std::string *message,
+                              ControllerLayout layout = ControllerLayout::Auto,
+                              bool dpad_swap = false);
+bool GenerateControllerConfig(const std::filesystem::path &user_directory,
+                              std::string_view controller, std::string_view guid,
+                              std::string *message,
+                              ControllerLayout layout = ControllerLayout::Auto,
+                              bool dpad_swap = false);
 bool GenerateControllerConfig(const std::filesystem::path &user_directory,
                               std::string_view controller, std::string *message,
-                              ControllerLayout layout = ControllerLayout::Auto);
+                              ControllerLayout layout = ControllerLayout::Auto,
+                              bool dpad_swap = false);
 bool EnsureControllerConfig(const std::filesystem::path &user_directory,
                             std::span<const std::string> controllers,
                             std::string *message);

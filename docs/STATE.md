@@ -294,7 +294,67 @@ for close, the wait is in place but the timeout-kill is not.
 
 
 
+## Native RVZ support
+
+Dolphin `.rvz` images are first-class input; there is no conversion step.
+
+- The launcher's `--extract` and its Browse dialog (`iso;wbfs;rvz`) go through
+  Dolphin DiscIO, which reads the RVZ container itself.
+- `tools\extract-disc.ps1` detects `RVZ\x01` by magic and, for the dev
+  pipeline, reconstructs the ISO with `tools\rvz_extract.py`, then writes
+  `sys/` + `files/`.
+
+Acceptance (same disc, both containers, project extractor):
+
+| Path | Entries | Tree aggregate |
+|---|---|---|
+| launcher `--extract` on `.iso` | 4227 | `3fc07252dc1232f8ca0268e5882099886604d49be96c49289d94dd2345531350` |
+| launcher `--extract` on `.rvz` | 4227 | `3fc07252dc1232f8ca0268e5882099886604d49be96c49289d94dd2345531350` |
+
+0 files only in one side, 0 content differences. `sys/` also matches:
+`main.dol` `627b8997…9fb7`, `fst.bin` `27688b0f…2301`, `apploader.img`
+`5a45b70e…ad98b`, `boot.bin` `feaf9324…08c7`, `bi2.bin` `4c2ae33f…6b6a`.
+
+`tools\rvz_extract.py` rebuilds the ISO byte for byte:
+`B84472A45F66C2EA968F18A4FEC7B9ABF44B0F1C6FD834E8727332F054E8FCB0` for both
+the original `.iso` and the RVZ-derived one.
+
+Known nuance: the dev pipeline (`gcdisc.py`) decodes two developer-leftover
+Shift-JIS PSD names with one replacement character where DiscIO decodes `・`.
+Contents are identical (content multiset equal); only those two file names
+differ. The launcher path has no such difference.
+
 ## Controller support
+
+8BitDo (and any vendor that ships several layouts under one vendor id) is
+resolved from the **live SDL mapping**, not the product name:
+
+- `DetectControllerMapping(guid)` calls `SDL_GetGamepadMappingForGUID` and parses
+  `a:`/`b:` (Nintendo order = a > b) plus `dpleft:`/`dpright:` (hat bits 2 vs 8
+  reversed).
+- Callers pass the resolved layout and `dpad_swap` into
+  `GenerateControllerConfig`.
+- Migration: `ControllerConfigNeedsMigration` rewrites an auto-generated profile
+  only when detection now says Nintendo and the stored body disagrees. Custom or
+  manually forced profiles are preserved.
+
+Offline results (`launcher.exe --pad-info`, `--pad-guid`, `--mapping`,
+`--check-migration`):
+
+| Case | Result |
+|---|---|
+| Pro 2 Nintendo `0300…11010000`, `…00020000`, `…00000000` | mapping=nintendo → Nintendo |
+| Pro 2 BT `0500…00010000` (driver mapping fed) | mapping=nintendo → Nintendo |
+| Pro 2 Switch-mode `0500…fd216d04` (driver mapping fed) | mapping=nintendo → Nintendo |
+| Ultimate `0300…1330000011010000` | mapping=positional → Generic (standard) |
+| 64 `0300…1930000000000000` | mapping=positional → Generic |
+| synthetic reversed D-pad | dpad=swapped |
+| generated generic profile + Nintendo detection | `migrate=yes` |
+| generated Nintendo profile + Nintendo detection | `migrate=no` |
+| custom profile (extra line) + Nintendo detection | `generated=no migrate=no` |
+| DualSense / Xbox / Switch Pro | unchanged (PlayStation / Xbox / Nintendo) |
+
+Generated bodies: Pro 2 → `Buttons/A = Button B`; Ultimate → `Button A`.
 
 Profiles are created by **both** programs, because RecompLauncher starts
 `game.exe` directly and never runs `launcher.exe`:
@@ -308,6 +368,53 @@ Profiles are created by **both** programs, because RecompLauncher starts
 Verified from a clean packaged install: `game.exe --user-dir <empty>` created
 `Device = SDL/0/Xbox One Controller`, and the runtime reported
 `pad0 default device='SDL/0/Xbox One Controller'` with `connected=1`.
+
+`GenerateControllerConfig` is layout-aware. Detection is **GUID-level**: the SDL
+GUID carries USB vendor/product at bytes 4-5 and 8-9, so special editions are
+identified by hardware ID rather than product name.
+
+| Pad | VID:PID | Layout | SDL evidence |
+|---|---|---|---|
+| DualSense | 054C:0CE6 | PlayStation | `controller_list.h` PS5Controller |
+| DualSense Edge | 054C:0DF2 | PlayStation | `usb_ids.h` `USB_PRODUCT_SONY_DS5_EDGE`; `controller_list.h` PS5Controller |
+| Xbox Elite S1 | 045E:02E3 | Xbox | `usb_ids.h` `..._ELITE_SERIES_1`; `controller_list.h` |
+| Xbox Elite S2 | 045E:0B00 | Xbox | `usb_ids.h` `..._ELITE_SERIES_2`; `controller_list.h` |
+| Xbox Elite S2 BT | 045E:0B05 | Xbox | `usb_ids.h` `..._ELITE_SERIES_2_BLUETOOTH`; `controller_list.h` |
+| Xbox Series | 045E:0B12 | Xbox | `controller_list.h` XBoxOneController |
+| Switch Pro | 057E:2009 | Nintendo | `controller_list.h` SwitchPro |
+
+Offline test (`launcher.exe --pad-info <guid>`), standard-equivalence by
+comparing the generated profile body without the `Device` line:
+
+```text
+Edge body == DualSense body : True
+Elite S1 body == Xbox body  : True
+Elite S2 body == Xbox body  : True
+Elite S2 BT body == Xbox    : True
+Switch Pro -> Buttons/A = `Button B` (Nintendo swap still correct)
+unknown VID -> Generic
+```
+
+Paddles and extra buttons (DualSense Edge paddles/Fn, Elite P1-P4) are
+deliberately unmapped; documented in PLAYERS.md.
+
+Startup diagnostic, printed to stderr on every run:
+
+```text
+[input] pad0 name="..." guid=<32 hex> layout=<Xbox|PlayStation|Nintendo|Generic> buttons=<normal|swapped> dpad=normal
+```
+
+Offline hardware-free test hook: `MODERNGEKKO_TEST_PAD="PID:VID:Name"` attaches
+an SDL virtual gamepad with that USB id, which exercises the real GUID path.
+Verified that way for 0DF2, 02E3, 0B00, 0B05 and 0CE6; each printed the expected
+layout and generated the same button body as its standard model.
+
+Player confirmation still needed: on real Edge/Elite hardware, check that
+`layout=PlayStation` / `layout=Xbox` appears with the matching name and that
+A/B/X/Y, L/R, Z and sticks behave like the standard pad. Send that line.
+
+Name-based detection now only runs when a GUID has no vendor/product (virtual
+or DirectInput pads) and is labelled as a fallback.
 
 `GenerateControllerConfig` is layout-aware. SDL normalises pads positionally, so
 Xbox, PlayStation, Steam Deck, 8BitDo and generic DirectInput pads all use the

@@ -1,4 +1,5 @@
 #include "frontend_config.hpp"
+#include "controller_mapping.hpp"
 #include "dol_patch.hpp"
 #include "launcher_savestates.hpp"
 #include "moderngekko/game.hpp"
@@ -308,6 +309,7 @@ struct ControllerOption
 {
   std::string label;
   std::string device;
+  std::string guid;
 };
 
 std::string RequiredGameError(const moderngekko::GameMetadata& metadata)
@@ -350,6 +352,10 @@ std::vector<ControllerOption> EnumerateControllers()
     ControllerOption option;
     option.label = device_id == 0 ? name : name + " (" + std::to_string(device_id + 1) + ")";
     option.device = "SDL/" + std::to_string(device_id) + "/" + name;
+    const SDL_GUID guid = SDL_GetJoystickGUIDForID(joystick_id);
+    char guid_text[33] = {};
+    SDL_GUIDToString(guid, guid_text, sizeof(guid_text));
+    option.guid = guid_text;
     result.emplace_back(std::move(option));
   }
   SDL_free(joystick_ids);
@@ -775,6 +781,11 @@ int main(int argc, char** argv)
   std::optional<fs::path> extract_only;
   std::optional<std::string> write_pad_profile;
   std::optional<std::string> user_directory_override;
+  std::optional<std::string> pad_info_guid;
+  std::string pad_info_name;
+  std::optional<std::string> pad_guid;
+  std::optional<std::string> pad_mapping;
+  std::optional<std::string> check_migration_dir;
   moderngekko::frontend::ControllerLayout pad_layout =
       moderngekko::frontend::ControllerLayout::Auto;
   for (int i = 1; i < argc; ++i)
@@ -791,6 +802,16 @@ int main(int argc, char** argv)
       extract_only = argv[++i];
     else if (std::string_view(argv[i]) == "--user-dir" && i + 1 < argc)
       user_directory_override = argv[++i];
+    else if (std::string_view(argv[i]) == "--pad-info" && i + 1 < argc)
+      pad_info_guid = argv[++i];
+    else if (std::string_view(argv[i]) == "--pad-name" && i + 1 < argc)
+      pad_info_name = argv[++i];
+    else if (std::string_view(argv[i]) == "--pad-guid" && i + 1 < argc)
+      pad_guid = argv[++i];
+    else if (std::string_view(argv[i]) == "--mapping" && i + 1 < argc)
+      pad_mapping = argv[++i];
+    else if (std::string_view(argv[i]) == "--check-migration" && i + 1 < argc)
+      check_migration_dir = argv[++i];
     else if (std::string_view(argv[i]) == "--write-pad-profile" && i + 1 < argc)
       write_pad_profile = argv[++i];
     else if (std::string_view(argv[i]) == "--pad-layout" && i + 1 < argc)
@@ -812,13 +833,75 @@ int main(int argc, char** argv)
   const fs::path user_directory =
       user_directory_override ? fs::path(*user_directory_override) : DefaultUserDirectory();
   const fs::path release_directory = ExecutableDirectory(argv[0]);
+  if (check_migration_dir)
+  {
+    const fs::path dir(*check_migration_dir);
+    const auto detected = pad_layout; // pass --pad-layout <family> as the live result
+    std::cout << "generated="
+              << (moderngekko::frontend::ControllerConfigIsGenerated(dir) ? "yes" : "no")
+              << " migrate="
+              << (moderngekko::frontend::ControllerConfigNeedsMigration(dir, detected)
+                      ? "yes"
+                      : "no")
+              << '\n';
+    return 0;
+  }
+  if (pad_info_guid)
+  {
+    // Offline identification: GUID -> vendor/product -> live SDL mapping -> layout.
+    SDL_Init(SDL_INIT_GAMEPAD);
+    const auto identity = moderngekko::frontend::ParseControllerGuid(*pad_info_guid);
+    const auto mapping = pad_mapping
+                             ? ParseControllerMapping(*pad_mapping)
+                             : DetectControllerMapping(*pad_info_guid);
+    const auto layout =
+        mapping.nintendo_style
+            ? moderngekko::frontend::ControllerLayout::Nintendo
+            : moderngekko::frontend::DetectControllerLayout(pad_info_name, *pad_info_guid);
+    char ids[64];
+    std::snprintf(ids, sizeof(ids), "vid=0x%04X pid=0x%04X", identity.vendor,
+                  identity.product);
+    std::cout << "guid=" << *pad_info_guid << '\n'
+              << "ids=" << (identity.has_ids ? ids : "none") << '\n'
+              << "mapping=" << (mapping.has_mapping ? (mapping.nintendo_style ? "nintendo" : "positional")
+                                                    : "none")
+              << '\n'
+              << "dpad=" << (mapping.dpad_reversed ? "swapped" : "normal") << '\n'
+              << "layout=" << moderngekko::frontend::ControllerLayoutLabel(layout) << '\n';
+    if (pad_mapping)
+      std::cout << "source=" << *pad_mapping << '\n';
+    if (const char *db = SDL_GetGamepadMappingForGUID(SDL_StringToGUID(pad_info_guid->c_str())))
+    {
+      std::cout << "db=" << db << '\n';
+      SDL_free(const_cast<char *>(db));
+    }
+    else
+      std::cout << "db=(none)\n";
+    return 0;
+  }
   if (write_pad_profile)
   {
-    // Headless: write a profile for one device string, for setup scripts and
-    // for verifying the layout families without opening a window.
+    // Headless: write a profile for one device string. With --pad-guid the
+    // layout comes from the live SDL mapping, exactly like the UI path.
+    ControllerMappingInfo mapping;
+    auto resolved = pad_layout;
+    if (pad_guid)
+    {
+      SDL_Init(SDL_INIT_GAMEPAD);
+      mapping = pad_mapping ? ParseControllerMapping(*pad_mapping)
+                            : DetectControllerMapping(*pad_guid);
+      if (resolved == moderngekko::frontend::ControllerLayout::Auto)
+        resolved = mapping.nintendo_style
+                       ? moderngekko::frontend::ControllerLayout::Nintendo
+                       : moderngekko::frontend::DetectControllerLayout(
+                             *write_pad_profile, *pad_guid);
+    }
     std::string message;
+    const std::string_view guid_view =
+        pad_guid ? std::string_view(*pad_guid) : std::string_view{};
     const bool ok = moderngekko::frontend::GenerateControllerConfig(
-        user_directory, *write_pad_profile, &message, pad_layout);
+        user_directory, *write_pad_profile, guid_view, &message, resolved,
+        mapping.dpad_reversed);
     if (!ok)
     {
       std::cerr << message << '\n';
@@ -1159,8 +1242,18 @@ int main(int argc, char** argv)
   const auto select_controller = [&](int index)
   {
     std::string message;
+    const auto mapping =
+        DetectControllerMapping(controllers[index].guid);
+    const auto resolved =
+        controller_layout != moderngekko::frontend::ControllerLayout::Auto
+            ? controller_layout
+            : (mapping.nintendo_style
+                   ? moderngekko::frontend::ControllerLayout::Nintendo
+                   : moderngekko::frontend::DetectControllerLayout(
+                         controllers[index].device, controllers[index].guid));
     if (!moderngekko::frontend::GenerateControllerConfig(
-            user_directory, controllers[index].device, &message, controller_layout))
+            user_directory, controllers[index].device, controllers[index].guid,
+            &message, resolved, mapping.dpad_reversed))
     {
       std::lock_guard lock(dialog.mutex);
       dialog.error = std::move(message);

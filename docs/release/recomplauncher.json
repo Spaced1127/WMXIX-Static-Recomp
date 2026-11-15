@@ -5,7 +5,7 @@
   "repo": "Spaced1127/WMXIX-Static-Recomp",
   "game": {
     "kind": "iso",
-    "label": "Your own USA GameCube disc image (.iso) of WWE WrestleMania XIX (GW9E78).",
+    "label": "Your own USA GameCube disc image (.iso or .rvz) of WWE WrestleMania XIX (GW9E78).",
     "dumps": [
       {
         "name": "USA",

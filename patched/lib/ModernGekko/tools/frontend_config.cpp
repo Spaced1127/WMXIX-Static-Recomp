@@ -436,6 +436,77 @@ bool ControllerConfigExists(const fs::path &user_directory) {
   return fs::is_regular_file(ControllerConfigPath(user_directory), ec);
 }
 
+namespace {
+
+std::string ProfileBody(std::istream &in) {
+  std::string body, line;
+  while (std::getline(in, line)) {
+    if (line.rfind("Device =", 0) == 0)
+      continue;
+    body += line;
+    body += '\n';
+  }
+  return body;
+}
+
+} // namespace
+
+bool MatchGeneratedControllerProfile(const fs::path &user_directory,
+                                     ControllerLayout *layout, bool *dpad_swap) {
+  std::ifstream existing_file(ControllerConfigPath(user_directory));
+  if (!existing_file)
+    return false;
+  const std::string existing = ProfileBody(existing_file);
+
+  // Probe each layout x D-pad variant in a scratch dir and compare bodies. A
+  // hand-edited profile matches none of them and is left alone.
+  static int probe_counter = 0;
+  for (const ControllerLayout candidate :
+       {ControllerLayout::Xbox, ControllerLayout::Nintendo, ControllerLayout::PlayStation,
+        ControllerLayout::Generic}) {
+    for (const bool swap : {false, true}) {
+      std::error_code ec;
+      const fs::path probe =
+          fs::temp_directory_path(ec) /
+          ("mgpadprobe-" + std::to_string(++probe_counter));
+      if (ec)
+        continue;
+      std::string message;
+      const bool ok = GenerateControllerConfig(
+          probe, std::string("SDL/0/Probe"), std::string_view(), &message, candidate,
+          swap);
+      if (ok) {
+        std::ifstream probe_file(ControllerConfigPath(probe));
+        if (probe_file && ProfileBody(probe_file) == existing) {
+          if (layout)
+            *layout = candidate;
+          if (dpad_swap)
+            *dpad_swap = swap;
+          fs::remove_all(probe, ec);
+          return true;
+        }
+      }
+      fs::remove_all(probe, ec);
+    }
+  }
+  return false;
+}
+
+bool ControllerConfigIsGenerated(const fs::path &user_directory) {
+  return MatchGeneratedControllerProfile(user_directory, nullptr, nullptr);
+}
+
+bool ControllerConfigNeedsMigration(const fs::path &user_directory,
+                                    ControllerLayout detected) {
+  if (detected != ControllerLayout::Nintendo)
+    return false;
+  ControllerLayout stored = ControllerLayout::Generic;
+  bool stored_swap = false;
+  if (!MatchGeneratedControllerProfile(user_directory, &stored, &stored_swap))
+    return false;
+  return stored != ControllerLayout::Nintendo;
+}
+
 const char *ControllerLayoutLabel(ControllerLayout layout) {
   switch (layout) {
   case ControllerLayout::Xbox:
@@ -452,7 +523,48 @@ const char *ControllerLayoutLabel(ControllerLayout layout) {
   return "Auto";
 }
 
-ControllerLayout DetectControllerLayout(std::string_view device) {
+ControllerIdentity ParseControllerGuid(std::string_view guid) {
+  ControllerIdentity identity;
+  if (guid.size() != 32)
+    return identity;
+  const auto hex = [](char c) -> int {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return 10 + c - 'a';
+    if (c >= 'A' && c <= 'F') return 10 + c - 'A';
+    return -1;
+  };
+  unsigned char bytes[16] = {};
+  for (int i = 0; i < 16; ++i) {
+    const int hi = hex(guid[static_cast<std::size_t>(i) * 2]);
+    const int lo = hex(guid[static_cast<std::size_t>(i) * 2 + 1]);
+    if (hi < 0 || lo < 0)
+      return identity;
+    bytes[i] = static_cast<unsigned char>((hi << 4) | lo);
+  }
+  identity.vendor = static_cast<unsigned short>(bytes[4] | (bytes[5] << 8));
+  identity.product = static_cast<unsigned short>(bytes[8] | (bytes[9] << 8));
+  identity.has_ids = identity.vendor != 0 || identity.product != 0;
+  return identity;
+}
+
+ControllerLayout DetectControllerLayout(std::string_view device,
+                                        std::string_view guid) {
+  // GUID: SDL packs vendor at bytes 4-5 and product at 8-9.
+  const ControllerIdentity identity = ParseControllerGuid(guid);
+  if (identity.has_ids) {
+    switch (identity.vendor) {
+    case 0x057E: // Nintendo
+      return ControllerLayout::Nintendo;
+    case 0x054C: // Sony (DualSense, DualSense Edge, DualShock)
+      return ControllerLayout::PlayStation;
+    case 0x045E: // Microsoft (Xbox, Xbox Elite)
+      return ControllerLayout::Xbox;
+    default:
+      return ControllerLayout::Generic;
+    }
+  }
+  // No usable GUID (DirectInput, virtual pads). Fall back to the name only as a
+  // last resort and label it clearly in the profile message.
   std::string lower(device);
   std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) {
     return static_cast<char>(std::tolower(c));
@@ -473,7 +585,9 @@ ControllerLayout DetectControllerLayout(std::string_view device) {
 
 bool GenerateControllerConfig(const fs::path &user_directory,
                               std::span<const std::string> controllers,
-                              std::string *message, ControllerLayout layout) {
+                              std::span<const std::string> guids,
+                              std::string *message, ControllerLayout layout,
+                              bool dpad_swap) {
   if (controllers.empty() || controllers.size() > 4) {
     if (message)
       *message = "select between one and four connected SDL gamepads";
@@ -510,7 +624,10 @@ bool GenerateControllerConfig(const fs::path &user_directory,
     // Nintendo pads report A on the east and B on the south, so a positional
     // binding puts GameCube A on the wrong button. Swap for that family.
     const ControllerLayout resolved =
-        layout == ControllerLayout::Auto ? DetectControllerLayout(controllers[i]) : layout;
+        layout == ControllerLayout::Auto
+            ? DetectControllerLayout(controllers[i],
+                                     i < guids.size() ? guids[i] : std::string_view{})
+            : layout;
     const bool nintendo = resolved == ControllerLayout::Nintendo;
     output << "Device = " << controllers[i] << '\n'
            << "Buttons/A = `" << (nintendo ? "Button B" : "Button A") << "`\n"
@@ -535,12 +652,19 @@ bool GenerateControllerConfig(const fs::path &user_directory,
               "Triggers/L = `Trigger L`\n"
               "Triggers/R = `Trigger R`\n"
               "Triggers/L-Analog = `Trigger L`\n"
-              "Triggers/R-Analog = `Trigger R`\n"
-              "D-Pad/Up = `Pad N` & `Shoulder L`\n"
-              "D-Pad/Down = `Pad S` & `Shoulder L`\n"
-              "D-Pad/Left = `Pad W` & `Shoulder L`\n"
-              "D-Pad/Right = `Pad E` & `Shoulder L`\n"
-              "Rumble/Motor = `Motor L` | `Motor R`\n";
+              "Triggers/R-Analog = `Trigger R`\n";
+    // A few firmwares report the D-pad left/right hat bits the wrong way round.
+    if (dpad_swap)
+      output << "D-Pad/Up = `Pad N` & `Shoulder L`\n"
+                "D-Pad/Down = `Pad S` & `Shoulder L`\n"
+                "D-Pad/Left = `Pad E` & `Shoulder L`\n"
+                "D-Pad/Right = `Pad W` & `Shoulder L`\n";
+    else
+      output << "D-Pad/Up = `Pad N` & `Shoulder L`\n"
+                "D-Pad/Down = `Pad S` & `Shoulder L`\n"
+                "D-Pad/Left = `Pad W` & `Shoulder L`\n"
+                "D-Pad/Right = `Pad E` & `Shoulder L`\n";
+    output << "Rumble/Motor = `Motor L` | `Motor R`\n";
 #else
     output << "[Wiimote" << i + 1 << "]\n";
     if (i >= controllers.size())
@@ -613,11 +737,33 @@ bool GenerateControllerConfig(const fs::path &user_directory,
 }
 
 bool GenerateControllerConfig(const fs::path &user_directory,
-                              std::string_view controller, std::string *message,
-                              ControllerLayout layout) {
+                              std::span<const std::string> controllers,
+                              std::string *message, ControllerLayout layout,
+                              bool dpad_swap) {
+  return GenerateControllerConfig(user_directory, controllers,
+                                  std::span<const std::string>(), message, layout,
+                                  dpad_swap);
+}
+
+bool GenerateControllerConfig(const fs::path &user_directory,
+                              std::string_view controller, std::string_view guid,
+                              std::string *message, ControllerLayout layout,
+                              bool dpad_swap) {
   const std::string value(controller);
-  return GenerateControllerConfig(
-      user_directory, std::span<const std::string>(&value, 1), message, layout);
+  const std::string guid_value(guid);
+  const std::span<const std::string> guids =
+      guid_value.empty() ? std::span<const std::string>()
+                         : std::span<const std::string>(&guid_value, 1);
+  return GenerateControllerConfig(user_directory,
+                                  std::span<const std::string>(&value, 1), guids,
+                                  message, layout, dpad_swap);
+}
+
+bool GenerateControllerConfig(const fs::path &user_directory,
+                              std::string_view controller, std::string *message,
+                              ControllerLayout layout, bool dpad_swap) {
+  return GenerateControllerConfig(user_directory, controller, std::string_view(),
+                                  message, layout, dpad_swap);
 }
 
 bool EnsureControllerConfig(const fs::path &user_directory,

@@ -4,6 +4,7 @@
 
 1. Open `launcher.exe`.
 2. Click **Browse for ISO / WBFS / RVZ** and pick your own USA dump of
+   WWE WrestleMania XIX — `.iso` or `.rvz`, no conversion needed.
    WWE WrestleMania XIX (the game id is `GW9E78`).
 3. Setup extracts the disc into `game_data/` next to the executables. It takes
    a minute or two and shows progress.
@@ -27,6 +28,38 @@ the Controller page lets you override what it guessed.
 Nintendo pads (Switch Pro, Joy-Con) get A/B and X/Y swapped so the physical
 labels match the GameCube buttons; everything else uses the standard positional
 mapping, where Cross/A is GameCube A.
+
+Pads are identified by their SDL GUID (USB vendor/product) and, where the pad
+ships several layouts under one vendor (8BitDo Pro 2 in Nintendo vs XInput
+mode), by the live SDL button mapping. Detection never relies on the product
+name alone.
+
+8BitDo in particular: the Pro 2 in Nintendo mode reports `a:b1,b:b0`, so it is
+detected as Nintendo and A/B plus X/Y are swapped to match the printed labels.
+The Ultimate and the 64 report the standard order and stay standard.
+
+Standard and special-edition ids:
+
+| Pad | VID:PID | Layout |
+|---|---|---|
+| DualSense | 054C:0CE6 | PlayStation |
+| DualSense Edge | 054C:0DF2 | PlayStation (identical to DualSense) |
+| Xbox Elite Series 1 | 045E:02E3 | Xbox |
+| Xbox Elite Series 2 | 045E:0B00 (USB), 045E:0B05 (BT) | Xbox |
+| Xbox Series | 045E:0B12 | Xbox |
+
+Paddles and extra buttons are deliberately not mapped. The GameCube pad has no
+equivalent input, so the DualSense Edge paddles/Fn and the Xbox Elite P1-P4
+paddles do nothing in game. Remap them in your pad's own software if you want
+them to duplicate a standard button.
+
+The game prints one controller line at startup:
+
+```text
+[input] pad0 name="DualSense Edge Wireless Controller" guid=ff00e0274c050000f20d000000007601 layout=PlayStation buttons=normal dpad=normal
+```
+
+Include that line with any controller report.
 
 The standard mapping:
 

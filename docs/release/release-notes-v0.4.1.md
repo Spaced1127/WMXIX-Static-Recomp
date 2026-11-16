@@ -1,4 +1,4 @@
-WWE WrestleMania XIX — v0.4.1 (hotfix)
+WWE WrestleMania XIX - v0.4.1 (hotfix)
 ======================================
 
 Controller and memory-card fix. Rendering, performance and disc handling are

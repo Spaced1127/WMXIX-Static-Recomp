@@ -2,6 +2,18 @@
 
 Living state file. Read this first in any new session.
 
+## Current session constraints
+
+- **Test pause (hub directive, 2026-11-16, active):** the user is on the
+  machine. Do NOT launch any GUI or game executable - no `launcher.exe`, no
+  `game.exe`, no runners, no windows, no audio. Host-side work only: code,
+  analysis, builds (no GUI), docs, file-level verification. A previous
+  directive lifted the hidden-desktop rule (tests, when allowed again, run as
+  ordinary visible windows; nothing hidden, moved or killed).
+- Blocked while paused: boot/fps smoke, save -> load in-game, controller matrix
+  runs (`tools\test-pad-layouts.ps1` starts `launcher.exe`), any memcard save
+  test. See "Next actions" for what each is waiting on.
+
 ## Target
 
 | Field | Value |
@@ -94,6 +106,7 @@ docs/STATE.md              this file
 | Performance baseline | done | stock/tuned/PGO/idle + JIT reference table below |
 | Packaging | done | `dist/WMXIX-v0.1.0-Windows-x64.zip`, manifest validates, no game data |
 | Artifact test | done | release copied to temp, prepared from ISO, booted from its own folder |
+| Release v0.4.1 | published | tag `v0.4.1`, commit `727eaeb`, zip sha256 `CCE3C502A1306A0F2A33750A06D4FAB236B22EDC895D05B7D960A5020E338512` |
 
 ## Core selection (static vs JIT vs interpreter)
 
@@ -194,7 +207,7 @@ profile's top sites and gameplay renders normally.
 | Steady state | **59.94 fps / 59.94 vps** |
 | Runtime stats after a 160 s run | `fallback=0`, `smc_failed=0`, `native_exc` nonzero (expected: game uses OS exception handlers) |
 | Intro movies | THP plays (letterboxed FMV renders) |
-| Memory card | `work/user/GC/USA/Card A/78-GW9E-__2f__wmx9_sys.gci` created |
+| Memory card | v0.4.1+: raw `GC/MemoryCardA.USA.raw` (16 MB) with a `GW9E` system save; pre-v0.4.1 installs used the `GC/USA/Card A` GCI folder |
 
 Reading the fps field too early is misleading: during boot/loading the
 instantaneous `fps` reads 2-3 because the game is streaming assets, then it
@@ -545,6 +558,19 @@ SteamGridDB's API returns 401 without one, so the shipped art is generated
 rather than scraped.
 
 
+
+## Release v0.4.1 (published 2026-11-16)
+
+| Field | Value |
+|---|---|
+| Tag / commit | `v0.4.1` / `727eaeb` |
+| Release | https://github.com/Spaced1127/WMXIX-Static-Recomp/releases/tag/v0.4.1 |
+| Asset | `WMXIX-v0.4.1-Windows-x64.zip` + `SHA256SUMS.txt` |
+| SHA-256 | `CCE3C502A1306A0F2A33750A06D4FAB236B22EDC895D05B7D960A5020E338512` |
+| Contents | 2668 entries, 0 game-data files, 110.3 MB unpacked |
+| Boot smoke | extracted artifact: `booted=1`, `speed=1`, 59.9 fps, clean stop |
+| Provenance | `game.exe`, `launcher.exe`, `gGW9E78_recomp.dll` and the shipped docs are byte-identical to the build tree and `docs/release` at the tag (hash-compared without launching) |
+| Notes fix | the published body initially had a mojibake em dash from a non-ASCII byte; `gh release edit` replaced it and the body now matches `docs/release/release-notes-v0.4.1.md` exactly. The notes file is not inside the zip, so the artifact is unaffected. |
 
 ## Open issues
 

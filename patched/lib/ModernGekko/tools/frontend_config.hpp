@@ -63,6 +63,15 @@ ReadConfiguredController(const std::filesystem::path &user_directory);
 std::vector<std::string>
 ReadConfiguredControllers(const std::filesystem::path &user_directory);
 bool ControllerConfigExists(const std::filesystem::path &user_directory);
+// Forces the GameCube EXI memory-card layout in Config/Dolphin.ini:
+//   [Core] SlotA = 1   (raw memory card)
+//          SlotB = 255 (None - empty slot)
+// Dolphin's default SlotA is the GCI folder (8), which makes the game's
+// CARDProbeEx hang on "checking memory card in slot A", and SlotB = 0 is the
+// Dummy device, which the game rejects as unsupported. Runs on every start so
+// existing installs are repaired; other ini keys are preserved.
+bool EnsureMemoryCardSlotSettings(const std::filesystem::path &user_directory,
+                                  std::string *message = nullptr);
 
 // Button layout families. SDL normalises every gamepad positionally, so an
 // Xbox pad and a DualSense already agree; Nintendo pads put their labelled A/B

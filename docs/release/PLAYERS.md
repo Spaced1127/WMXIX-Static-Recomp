@@ -56,10 +56,12 @@ them to duplicate a standard button.
 The game prints one controller line at startup:
 
 ```text
-[input] pad0 name="DualSense Edge Wireless Controller" guid=ff00e0274c050000f20d000000007601 layout=PlayStation buttons=normal dpad=normal
+[input] pad0 name="DualSense Edge Wireless Controller" guid=030000004c050000f20d000000007801 layout=PlayStation buttons=normal dpad=normal mapping=live source=mapping-positional device="SDL/0/DualSense Edge Wireless Controller"
 ```
 
-Include that line with any controller report.
+`mapping=live|none` says whether SDL had a mapping for the pad; `source=` says
+what decided the button layout. Include the whole line with any controller
+report.
 
 The standard mapping:
 
@@ -87,14 +89,19 @@ use the left stick.
 
 ## Saving
 
-The port uses a folder memory card, not a card image:
+The port uses a raw 16 MB memory card in slot A (slot B is empty):
 
 ```
-<user folder>\GC\USA\Card A\*.gci
+<user folder>\GC\MemoryCardA.USA.raw
 ```
 
-You can copy `.gci` files from Dolphin into that folder. Savestates live under
-`<user folder>\StateSaves\`.
+That is a standard Dolphin raw card. Copy it between machines, or convert
+Dolphin `.gci`/`.psu` saves into a raw card with Dolphin's memory card manager
+and put the `.raw` file there. Savestates live under `<user folder>\StateSaves\`.
+
+If you have an older install, the first run of v0.4.1 rewrites
+`Config\Dolphin.ini` to `SlotA = 1` / `SlotB = 255`; a leftover
+`GC\USA\Card A` folder is no longer used and can be moved aside.
 
 The user folder is `%LOCALAPPDATA%\WMXIX` for a manual install, or the
 RecompLauncher local folder when installed through RecompLauncher.

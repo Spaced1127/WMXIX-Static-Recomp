@@ -54,7 +54,8 @@ void AttachTestPadFromEnv() {
   if (!spec || !*spec)
     return;
   unsigned pid = 0, vid = 0;
-  char name[128] = {};
+  // SDL keeps the pointer in the descriptor, so it must outlive this call.
+  static char name[128] = {};
   if (std::sscanf(spec, "%x:%x:%127[^:]", &pid, &vid, name) < 2)
     return;
   SDL_VirtualJoystickDesc desc{};
@@ -73,7 +74,15 @@ void AttachTestPadFromEnv() {
 // the launcher would have made, and print one line players can paste into a
 // report: name, GUID, resolved layout.
 void EnsureDefaultControllerConfig(const std::filesystem::path &user_directory) {
-  if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) {
+  // Initialise the gamepad subsystem and LEAVE IT UP. v0.4.0 used
+  // SDL_Init(SDL_INIT_VIDEO|SDL_INIT_GAMEPAD) followed by SDL_Quit(), which tore
+  // SDL down again before the runtime started. Dolphin's SDL input backend then
+  // had to initialise the joystick drivers itself, from its own worker thread,
+  // without video: HIDAPI pads (DualSense, 8BitDo, Switch Pro) still came up,
+  // but the Windows XInput/RAWINPUT/WGI paths that enumerate standard Xbox pads
+  // did not, so an Xbox profile pointed at a device that never existed
+  // (pad0 connected=0). v0.3.x only ever called SDL_InitSubSystem here.
+  if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) {
     std::cerr << "controller: SDL init failed: " << SDL_GetError() << '\n';
     return;
   }
@@ -83,47 +92,61 @@ void EnsureDefaultControllerConfig(const std::filesystem::path &user_directory) 
   std::vector<std::string> guids;
   int count = 0;
   SDL_JoystickID *ids = SDL_GetJoysticks(&count);
+  // Dolphin numbers devices per (source, name) over every SDL joystick it adds,
+  // including ones without a gamepad mapping. Count the same way so the written
+  // "SDL/<id>/<name>" is the string the runtime resolves.
   std::unordered_map<std::string, int> seen;
   if (ids) {
     for (int i = 0; i < count; ++i) {
+      const char *raw = SDL_IsGamepad(ids[i]) ? SDL_GetGamepadNameForID(ids[i])
+                                              : SDL_GetJoystickNameForID(ids[i]);
+      const std::string name = raw && *raw ? raw : "Gamepad";
+      const int device_id = seen[name]++;
       if (!SDL_IsGamepad(ids[i]))
         continue;
-      const char *raw = SDL_GetGamepadNameForID(ids[i]);
-      const std::string name = raw && *raw ? raw : "Gamepad";
       char guid_text[33] = {};
       SDL_GUIDToString(SDL_GetJoystickGUIDForID(ids[i]), guid_text,
                        sizeof(guid_text));
-      devices.push_back("SDL/" + std::to_string(seen[name]++) + "/" + name);
+      devices.push_back("SDL/" + std::to_string(device_id) + "/" + name);
       guids.emplace_back(guid_text);
     }
     SDL_free(ids);
   }
   std::cerr << "controller: " << devices.size() << " SDL gamepad(s) detected\n";
 
-  if (devices.empty()) {
-    SDL_Quit();
+  if (devices.empty())
     return;
-  }
 
-  const auto mapping =
-      DetectControllerMapping(guids.front());
-  const auto detected =
-      moderngekko::frontend::DetectControllerLayout(devices.front(), guids.front());
-
+  // Resolve each pad from its own GUID + live mapping inside
+  // GenerateControllerConfig, so a Nintendo pad on port 1 can never swap the
+  // A/B of an Xbox pad on port 2.
   if (!moderngekko::frontend::ControllerConfigExists(user_directory)) {
     std::string message;
-    if (moderngekko::frontend::GenerateControllerConfig(
-            user_directory, devices, guids, &message, detected, mapping.dpad_reversed))
+    if (moderngekko::frontend::GenerateControllerConfig(user_directory, devices, guids,
+                                                        &message))
       std::cerr << "controller configuration: " << message << '\n';
-  } else if (moderngekko::frontend::ControllerConfigNeedsMigration(user_directory,
-                                                                  detected)) {
-    std::string message;
-    if (moderngekko::frontend::GenerateControllerConfig(
-            user_directory, devices, guids, &message, detected,
-            mapping.dpad_reversed))
-      std::cerr << "controller configuration migrated: " << message << '\n';
+  } else {
+    // Migration has to run even when config.ini already names a controller,
+    // otherwise players who pick their pad in the launcher never get corrected
+    // (that was the v0.4.0 gap).
+    const auto detected =
+        moderngekko::frontend::DetectControllerLayout(devices.front(), guids.front());
+    if (moderngekko::frontend::ControllerConfigNeedsMigration(user_directory, detected)) {
+      std::string message;
+      if (moderngekko::frontend::GenerateControllerConfig(user_directory, devices, guids,
+                                                          &message))
+        std::cerr << "controller configuration migrated: " << message << '\n';
+    }
   }
 
+  // One line, one truth, for bug reports: name, GUID, layout, buttons, D-pad,
+  // the device string written into GCPadNew.ini, and where the layout came from.
+  const auto mapping = DetectControllerMapping(guids.front());
+  const auto detected =
+      moderngekko::frontend::DetectControllerLayout(devices.front(), guids.front());
+  const char *source = mapping.has_mapping
+                           ? (mapping.nintendo_style ? "mapping-nintendo" : "mapping-positional")
+                           : "guid";
   std::cerr << "[input] pad0 name=\""
             << devices.front().substr(devices.front().find('/', 5) + 1)
             << "\" guid=" << guids.front()
@@ -131,18 +154,10 @@ void EnsureDefaultControllerConfig(const std::filesystem::path &user_directory) 
             << (detected == moderngekko::frontend::ControllerLayout::Nintendo
                     ? " buttons=swapped"
                     : " buttons=normal")
-            << (mapping.dpad_reversed ? " dpad=swapped" : " dpad=normal") << std::endl;
-
-  const auto layout =
-      moderngekko::frontend::DetectControllerLayout(devices.front(), guids.front());
-  std::cerr << "[input] pad0 name=\"" << devices.front().substr(devices.front().find('/', 5) + 1)
-            << "\" guid=" << guids.front()
-            << " layout=" << moderngekko::frontend::ControllerLayoutLabel(layout)
-            << (layout == moderngekko::frontend::ControllerLayout::Nintendo
-                    ? " buttons=swapped dpad=normal"
-                    : " buttons=normal dpad=normal")
+            << (mapping.dpad_reversed ? " dpad=swapped" : " dpad=normal")
+            << " mapping=" << (mapping.has_mapping ? "live" : "none")
+            << " source=" << source << " device=\"" << devices.front() << "\""
             << std::endl;
-  SDL_Quit();
 }
 
 void Usage() {
@@ -363,8 +378,19 @@ int RunMain(int argc, char **argv) {
     return 2;
   }
   // RecompLauncher starts this executable directly, so the launcher never gets
-  // a chance to write a pad profile. Generate one from the connected SDL pad on
-  // first run; the launcher path still overwrites it when it runs.
+  // a chance to write a pad profile. Bootstrap one from the connected SDL pad on
+  // first run and migrate an old auto-generated profile when the live mapping
+  // disagrees. Always print the diagnostic line.
+  if (!netplay_role)
+    EnsureDefaultControllerConfig(config.user_directory);
+  // Raw card in slot A, empty slot B, before the core reads Dolphin.ini.
+  // Covers RecompLauncher installs that never run launcher.exe.
+  {
+    std::string memory_card_message;
+    if (!moderngekko::frontend::EnsureMemoryCardSlotSettings(config.user_directory,
+                                                            &memory_card_message))
+      std::cerr << "memory card configuration: " << memory_card_message << '\n';
+  }
   if (core_mode.empty())
     core_mode = frontend_config.cpu_core;
 #if defined(_WIN32)
@@ -395,10 +421,6 @@ int RunMain(int argc, char **argv) {
     config.mod_directories.push_back(executable_directory / "Mods");
     config.mod_directories.push_back(config.user_directory / "Mods");
   }
-
-  if (!netplay_role && frontend_config.controller.empty() &&
-      frontend_config.controllers.empty())
-    EnsureDefaultControllerConfig(config.user_directory);
 
   if (!netplay_role && !frontend_config.controller.empty()) {
     std::string controller_message;

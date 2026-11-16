@@ -159,6 +159,10 @@ inline HostStatus PrepareHost(const fs::path& user_directory,
   const fs::path shader_cache = user_directory / "Cache" / "Shaders";
   fs::create_directories(shader_cache, ec);
   status.shader_cache = fs::is_directory(shader_cache, ec) && !ec;
+  // Slot A = raw card, slot B = empty, forced on every launch so existing
+  // installs are repaired (a previous SlotB = 0 / unset SlotA makes the game
+  // hang on "checking memory card in slot A").
+  moderngekko::frontend::EnsureMemoryCardSlotSettings(user_directory);
 #if defined(_WIN32)
   status.high_priority = SetPriorityClass(GetCurrentProcess(), HIGH_PRIORITY_CLASS) != 0;
 
@@ -2286,13 +2290,24 @@ int main(int argc, char** argv)
       }
       if (controller_index >= 0)
       {
-        const auto detected = moderngekko::frontend::DetectControllerLayout(
-            controllers[controller_index].device);
+        // Same resolution the generator uses: live mapping first, then the
+        // GUID's vendor/product. The name alone lies for 8BitDo
+        // ("Pro 2" is Nintendo mode over Bluetooth, standard over XInput).
+        const auto& pad = controllers[controller_index];
+        const auto pad_mapping = DetectControllerMapping(pad.guid);
+        const auto detected =
+            pad_mapping.has_mapping
+                ? (pad_mapping.nintendo_style
+                       ? moderngekko::frontend::ControllerLayout::Nintendo
+                       : moderngekko::frontend::DetectControllerLayout(pad.device, pad.guid))
+                : moderngekko::frontend::DetectControllerLayout(pad.device, pad.guid);
         ImGui::TextDisabled("Detected: %s%s",
                             moderngekko::frontend::ControllerLayoutLabel(detected),
                             controller_layout == moderngekko::frontend::ControllerLayout::Auto
                                 ? " (auto)"
                                 : "");
+        if (pad_mapping.dpad_reversed)
+          ImGui::SameLine(), ImGui::TextDisabled("| D-pad L/R swapped (auto)");
       }
       ImGui::BeginDisabled(controller_index < 0);
       const std::string replace_profile =

@@ -52,11 +52,23 @@
       "file": [{ "path": "{local}/WMXIX/Config/Dolphin.ini" }],
       "ensure": {
         "Core/EmulationSpeed": "1",
-        "Core/StaticRecompIdlePC": "2150087204"
+        "Core/StaticRecompIdlePC": "2150087204",
+        "Core/SlotA": "1",
+        "Core/SlotB": "255"
       },
       "always": {
         "Core/EmulationSpeed": "1",
-        "Core/StaticRecompIdlePC": "2150087204"
+        "Core/StaticRecompIdlePC": "2150087204",
+        "Core/SlotA": "1",
+        "Core/SlotB": "255"
+      },
+      "new": {
+        "Core/CPUCore": "6",
+        "Core/GFXBackend": "Vulkan",
+        "Core/EmulationSpeed": "1",
+        "Core/StaticRecompIdlePC": "2150087204",
+        "Core/SlotA": "1",
+        "Core/SlotB": "255"
       }
     }
   ],

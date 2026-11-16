@@ -1,5 +1,7 @@
 #include "frontend_config.hpp"
 
+#include "controller_mapping.hpp"
+
 #include <algorithm>
 #include <cctype>
 #include <charconv>
@@ -436,6 +438,99 @@ bool ControllerConfigExists(const fs::path &user_directory) {
   return fs::is_regular_file(ControllerConfigPath(user_directory), ec);
 }
 
+bool EnsureMemoryCardSlotSettings(const fs::path &user_directory,
+                                  std::string *message) {
+  // Dolphin reads these from [Core] in Config/Dolphin.ini. Rewrite the two keys
+  // in place, keeping every other line, and force the value even when the key
+  // already exists (a previous install may carry SlotB = 0 = Dummy).
+  const fs::path path = user_directory / "Config" / "Dolphin.ini";
+  std::error_code ec;
+  fs::create_directories(path.parent_path(), ec);
+  if (ec) {
+    if (message)
+      *message = "can't create config directory: " + ec.message();
+    return false;
+  }
+
+  std::vector<std::string> lines;
+  {
+    std::ifstream input(path);
+    std::string line;
+    while (std::getline(input, line)) {
+      if (!line.empty() && line.back() == '\r')
+        line.pop_back();
+      lines.push_back(line);
+    }
+  }
+
+  struct KeyValue {
+    std::string_view key;
+    std::string_view value;
+  };
+  const KeyValue wanted[] = {{"SlotA", "1"}, {"SlotB", "255"}};
+  bool present[2] = {false, false};
+
+  // Find or create the [Core] section.
+  std::size_t section_begin = lines.size();
+  std::size_t section_end = lines.size();
+  for (std::size_t i = 0; i < lines.size(); ++i) {
+    const std::string trimmed = Trim(lines[i]);
+    if (trimmed.starts_with('[') && trimmed.ends_with(']')) {
+      if (section_begin != lines.size() && section_end == lines.size())
+        section_end = i;
+      if (Trim(trimmed.substr(1, trimmed.size() - 2)) == "Core") {
+        section_begin = i;
+        section_end = lines.size();
+      }
+    }
+  }
+  if (section_begin == lines.size()) {
+    if (!lines.empty())
+      lines.emplace_back();
+    lines.emplace_back("[Core]");
+    section_begin = lines.size() - 1;
+    section_end = lines.size();
+  }
+
+  for (std::size_t i = section_begin + 1; i < section_end && i < lines.size(); ++i) {
+    const std::string &line = lines[i];
+    const std::size_t separator = line.find('=');
+    if (separator == std::string::npos)
+      continue;
+    const std::string key = Trim(line.substr(0, separator));
+    for (int k = 0; k < 2; ++k) {
+      if (key == wanted[k].key) {
+        lines[i] = key + " = " + std::string(wanted[k].value);
+        present[k] = true;
+      }
+    }
+  }
+  for (int k = 0; k < 2; ++k) {
+    if (present[k])
+      continue;
+    lines.insert(lines.begin() + static_cast<std::ptrdiff_t>(section_end),
+                 std::string(wanted[k].key) + " = " + std::string(wanted[k].value));
+    ++section_end;
+  }
+
+  std::ofstream output(path, std::ios::trunc);
+  if (!output) {
+    if (message)
+      *message = "can't write " + path.string();
+    return false;
+  }
+  for (const std::string &line : lines)
+    output << line << '\n';
+  if (!output) {
+    if (message)
+      *message = "can't write " + path.string();
+    return false;
+  }
+  if (message)
+    *message = "memory card: slot A = raw card, slot B = empty";
+  return true;
+}
+
 namespace {
 
 std::string ProfileBody(std::istream &in) {
@@ -565,6 +660,8 @@ ControllerLayout DetectControllerLayout(std::string_view device,
   }
   // No usable GUID (DirectInput, virtual pads). Fall back to the name only as a
   // last resort and label it clearly in the profile message.
+  // Order matters: "Xbox Wireless Controller" also contains "wireless
+  // controller", so the Xbox test has to come before the PlayStation one.
   std::string lower(device);
   std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) {
     return static_cast<char>(std::tolower(c));
@@ -572,14 +669,14 @@ ControllerLayout DetectControllerLayout(std::string_view device,
   const auto has = [&lower](std::string_view needle) {
     return lower.find(needle) != std::string::npos;
   };
+  if (has("xbox") || has("xinput"))
+    return ControllerLayout::Xbox;
   if (has("nintendo") || has("switch") || has("joy-con") || has("joycon") ||
       has("pro controller"))
     return ControllerLayout::Nintendo;
-  if (has("playstation") || has("dualsense") || has("dualshock") ||
-      has("wireless controller") || has("ps4") || has("ps5"))
+  if (has("playstation") || has("dualsense") || has("dualshock") || has("ps4") ||
+      has("ps5"))
     return ControllerLayout::PlayStation;
-  if (has("xbox") || has("xinput"))
-    return ControllerLayout::Xbox;
   return ControllerLayout::Generic;
 }
 
@@ -621,14 +718,27 @@ bool GenerateControllerConfig(const fs::path &user_directory,
     output << "[GCPad" << i + 1 << "]\n";
     if (i >= controllers.size())
       continue;
+    const std::string_view guid =
+        i < guids.size() ? std::string_view(guids[i]) : std::string_view{};
     // Nintendo pads report A on the east and B on the south, so a positional
     // binding puts GameCube A on the wrong button. Swap for that family.
-    const ControllerLayout resolved =
-        layout == ControllerLayout::Auto
-            ? DetectControllerLayout(controllers[i],
-                                     i < guids.size() ? guids[i] : std::string_view{})
-            : layout;
-    const bool nintendo = resolved == ControllerLayout::Nintendo;
+    //
+    // Resolution is PER PAD. An explicit layout still wins (the launcher's
+    // "Button layout" dropdown), but the live mapping is consulted for each
+    // device, so a Switch Pro on port 1 can never swap an Xbox pad on port 2.
+    bool nintendo = false;
+    bool swap_dpad = dpad_swap;
+    if (layout == ControllerLayout::Auto) {
+      const ControllerMappingInfo mapping = DetectControllerMapping(guid);
+      swap_dpad = mapping.dpad_reversed;
+      if (mapping.has_mapping)
+        nintendo = mapping.nintendo_style;
+      else
+        nintendo = DetectControllerLayout(controllers[i], guid) ==
+                   ControllerLayout::Nintendo;
+    } else {
+      nintendo = layout == ControllerLayout::Nintendo;
+    }
     output << "Device = " << controllers[i] << '\n'
            << "Buttons/A = `" << (nintendo ? "Button B" : "Button A") << "`\n"
               "Buttons/B = `"
@@ -654,7 +764,7 @@ bool GenerateControllerConfig(const fs::path &user_directory,
               "Triggers/L-Analog = `Trigger L`\n"
               "Triggers/R-Analog = `Trigger R`\n";
     // A few firmwares report the D-pad left/right hat bits the wrong way round.
-    if (dpad_swap)
+    if (swap_dpad)
       output << "D-Pad/Up = `Pad N` & `Shoulder L`\n"
                 "D-Pad/Down = `Pad S` & `Shoulder L`\n"
                 "D-Pad/Left = `Pad E` & `Shoulder L`\n"

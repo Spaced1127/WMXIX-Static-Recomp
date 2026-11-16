@@ -398,16 +398,35 @@ unknown VID -> Generic
 Paddles and extra buttons (DualSense Edge paddles/Fn, Elite P1-P4) are
 deliberately unmapped; documented in PLAYERS.md.
 
-Startup diagnostic, printed to stderr on every run:
+Startup diagnostic, printed to stderr on every run (one line, v0.4.1+):
 
 ```text
-[input] pad0 name="..." guid=<32 hex> layout=<Xbox|PlayStation|Nintendo|Generic> buttons=<normal|swapped> dpad=normal
+[input] pad0 name="..." guid=<32 hex> layout=<Xbox|PlayStation|Nintendo|Generic> buttons=<normal|swapped> dpad=<normal|swapped> mapping=<live|none> source=<mapping-nintendo|mapping-positional|guid> device="SDL/<id>/<name>"
 ```
 
+Offline layout matrix, no hardware needed:
+
+```powershell
+powershell -File tools\test-pad-layouts.ps1
+```
+
+18 cases: Xbox 360 (plain + XInput GUID), Xbox One, Series 0B12/0B22, Elite S1,
+Elite S2 USB, Elite S2 BT, Xbox name-only fallback, DualSense, DualSense Edge
+USB/BT, 8BitDo Pro 2 Nintendo mode, Pro 2 XInput mode, Ultimate, 64, Switch Pro,
+synthetic reversed D-pad. Each asserts layout, D-pad and the generated
+`Buttons/A`. Result after the v0.4.1 fix: **18/18 PASS**.
+
+Resolved per pad: layout and D-pad come from each pad's own GUID and live SDL
+mapping inside `GenerateControllerConfig`, so a Nintendo pad on port 1 cannot
+swap an Xbox pad on port 2. An explicit layout (launcher dropdown) still wins.
+
 Offline hardware-free test hook: `MODERNGEKKO_TEST_PAD="PID:VID:Name"` attaches
-an SDL virtual gamepad with that USB id, which exercises the real GUID path.
-Verified that way for 0DF2, 02E3, 0B00, 0B05 and 0CE6; each printed the expected
-layout and generated the same button body as its standard model.
+an SDL virtual gamepad with that USB id. It exercises the GUID -> vendor path
+only: SDL builds virtual pads with the `v` driver tag and no gamepad mapping, so
+`mapping=none` and the a>b / D-pad rules are *not* covered by it. Use
+`tools\test-pad-layouts.ps1` (which feeds real driver mapping strings through
+`--pad-info --mapping`) for the mapping path, and the hook only for the vendor
+table (0DF2, 02E3, 0B00, 0B05, 0CE6, 0B12).
 
 Player confirmation still needed: on real Edge/Elite hardware, check that
 `layout=PlayStation` / `layout=Xbox` appears with the matching name and that
@@ -528,6 +547,128 @@ rather than scraped.
 
 
 ## Open issues
+
+### v0.4.1: memory card hung on "checking memory card in slot A" (fixed, pending release)
+
+Shared pattern from the Aggressive Inline project
+(`docs/notes/12-memcard-shared-pattern.md` there), same ModernGekko/Dolphin
+runtime family. Three causes:
+
+1. `Core/SlotA` was never written, so Dolphin's default `MemoryCardFolder` (8)
+   was used with an empty `GC/<region>/Card A`; the game's card probe never
+   completed and the save screen hung.
+2. `Runtime::Create` called `UICommon::SetUserDirectory` + `UICommon::Init` but
+   not `UICommon::CreateDirectories`, so `GC/` did not exist before
+   `ExpansionInterface::Init` resolved `GC/MemoryCardA.<region>.raw`.
+3. `SlotB = 0` is Dolphin's `Dummy` device ("THE DEVICE IN SLOT B IS NOT
+   SUPPORTED"); the empty slot is `None` = 255.
+
+Fix: `SlotA = 1` / `SlotB = 255` forced by `EnsureMemoryCardSlotSettings` in
+`frontend_config.cpp` (called by both `launcher.exe` and `game.exe`),
+`UICommon::CreateDirectories()` plus `Config::SetBase(MAIN_SLOT_A/B)` in
+`dolphin_runtime.cpp`, and the same keys in the RecompLauncher manifest
+(`ensure` / `always` / `new`).
+
+Evidence, fresh user dir with no `GC/`, headless, clean automation `stop`:
+
+| Point | Value |
+|---|---|
+| before | `GC/` absent |
+| after | `GC/EUR`, `GC/JAP`, `GC/USA`, `MemoryCardA.USA.raw`, `SRAM.raw` |
+| `Dolphin.ini` | `SlotA = 1`, `SlotB = 255` |
+| card size | 16,777,216 bytes |
+| card SHA-256 (empty formatted) | `EA5170CFB8F4BA0B84978330CF0D1C678DFCFB7FB5AAA5474B71D528A2D8A2C5` |
+| second boot | same SHA (no rewrite) |
+| legacy install (`SlotB = 0`, no `SlotA`) | repaired to 1/255, same 16 MB card |
+
+Save evidence (fresh card, then the game's own card write). Empty formatted card
+SHA depends on the per-format header serial, so compare the same file only.
+After reaching the title and pressing START/A the game wrote its system file:
+
+```text
+empty formatted card      16,777,216  EA5170CF...A2D8A2C5
+after the game's save     16,777,216  1C2B0319F9EB88877D74393CE500FE0B2FD3AAC8B970E65B96EF27A0A21AC327
+directory entry 0         gamecode GW9E  company 78  name /wmx9_sys
+entries 1..2              empty (FF)
+```
+
+Load: the same card booted a second time to the title and exited cleanly with
+sha256 still `1C2B0319...21AC327` - the game read the existing card and did not
+reformat or rewrite it. Card-level load confirmed; a UI-level "LOADING <file>"
+round trip was not observed (headless has no frame dumper, so menu navigation
+cannot be steered by screenshots on this host).
+
+Runtime note: with `--headless` the `fps` field stays 0 (no presenter), so speed
+is read from `speed=` plus the frame delta: 1264 frames in 21 s = 60.2 fps, and
+`speed=1.0` on a reload boot.
+
+Quiet-mode rule changed by user directive (2026-11-16): test runs are launched as
+normal visible windows. `H:\Orchestration\tools\run-hidden.ps1` is no longer
+used, and test windows are not hidden, moved or killed.
+
+Not verified yet: an in-game save writing directory entries and a save -> load
+round trip. Reaching a save needs menu automation on a fresh card; the only
+existing savestate (`work/states/user-match.state`) predates the fix and would
+restore the folder device, which is the shared pattern's caveat. Also confirmed
+for the record: a force-kill skips the card flush and leaves no `.raw` file -
+use the automation `stop` command.
+
+### v0.4.0: Xbox pads detected but bound nothing (fixed in v0.4.1, pending release)
+
+Symptom from players: Xbox controllers "not working at all". PlayStation and
+8BitDo pads were fine.
+
+Root cause, not layout detection. v0.4.0 revived `EnsureDefaultControllerConfig`
+in `tools/moderngekko_run.cpp`, which opened SDL with
+`SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)` and then called **`SDL_Quit()`**
+before the runtime started (v0.3.x used `SDL_InitSubSystem(SDL_INIT_GAMEPAD)`
+and never quit). Dolphin's SDL input backend then initialised the joystick
+drivers itself, on its own worker thread, without video. HIDAPI devices
+(DualSense, Edge, Switch Pro, 8BitDo) came up; the Windows
+XInput/RAWINPUT/WGI paths that enumerate a standard Xbox pad did not.
+
+Evidence, same command line, release v0.4.0 vs fixed build:
+
+```text
+# v0.4.0
+[input] device: DInput/Keyboard Mouse
+[input] pad0 default device='SDL/0/Xbox Series X Controller'
+[input] pad0 connected=0
+
+# fixed
+[input] device: DInput/Keyboard Mouse
+[input] device: SDL/Xbox Series X Controller
+[input] pad0 default device='SDL/0/Xbox Series X Controller'
+```
+
+The Xbox layout itself was never wrong: 360 `030000005e0400008e02000000000000`,
+One `02EA`, Series `0B12`/`0B22`, Elite `02E3`/`0B00`/`0B05` all resolve to
+`layout=Xbox`, `dpad=normal`, standard body, byte-identical to v0.3.2.
+
+Also fixed in the same change: pad-1 layout/dpad leaking to every pad, device
+id counted differently from the runtime, `"Xbox Wireless Controller"` matching
+the PlayStation name rule, migration skipped when `config.ini` named a pad, the
+duplicated `[input]` line with a hard-coded `dpad=normal`, and a launcher
+"Detected:" label that ignored the live mapping.
+
+Open: physical confirmation from an Xbox 360, Xbox One/Series and an Elite S1/S2
+owner; this machine has no Xbox hardware (DualSense/DS4 only), so the run above
+used SDL's virtual pad with VID 045E, PID 0B12.
+
+Next actions
+------------
+1. Hub approval, then `tools\make-release.ps1 -Version 0.4.1`, verify the zip
+   back (SHA-256, no game data), commit, tag, publish.
+2. Memory card: drive a save in a fresh-card session and record the directory
+   entry + SHA after the save, then a load of that file. Do not use an old
+   savestate (it restores the EXI device type). `tools\test-pad-layouts.ps1`
+   covers the controller matrix; card tests need the automation `stop` command.
+3. Ask for the new `[input] pad0 ...` line from an Elite S2 (BT) owner: the
+   P1-P4 paddles stay unmapped by design; confirm A/B/X/Y, L/R, Z and sticks.
+4. D-pad in the generated gameplay profile is still `Pad N & Shoulder L`
+   (deliberate in v0.3.x, plain in the menu profile and in `generic.ini`).
+   Left as-is; confirm with the hub whether the D-pad should be plain in-game
+   too.
 
 ### Runtime patch: non-ASCII file names abort the process (fixed)
 

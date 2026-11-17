@@ -325,15 +325,15 @@ Acceptance (same disc, both containers, project extractor):
 | launcher `--extract` on `.rvz` | 4227 | `3fc07252dc1232f8ca0268e5882099886604d49be96c49289d94dd2345531350` |
 
 0 files only in one side, 0 content differences. `sys/` also matches:
-`main.dol` `627b8997â€¦9fb7`, `fst.bin` `27688b0fâ€¦2301`, `apploader.img`
-`5a45b70eâ€¦ad98b`, `boot.bin` `feaf9324â€¦08c7`, `bi2.bin` `4c2ae33fâ€¦6b6a`.
+`main.dol` `627b8997Ã¢â‚¬Â¦9fb7`, `fst.bin` `27688b0fÃ¢â‚¬Â¦2301`, `apploader.img`
+`5a45b70eÃ¢â‚¬Â¦ad98b`, `boot.bin` `feaf9324Ã¢â‚¬Â¦08c7`, `bi2.bin` `4c2ae33fÃ¢â‚¬Â¦6b6a`.
 
 `tools\rvz_extract.py` rebuilds the ISO byte for byte:
 `B84472A45F66C2EA968F18A4FEC7B9ABF44B0F1C6FD834E8727332F054E8FCB0` for both
 the original `.iso` and the RVZ-derived one.
 
 Known nuance: the dev pipeline (`gcdisc.py`) decodes two developer-leftover
-Shift-JIS PSD names with one replacement character where DiscIO decodes `ãƒ»`.
+Shift-JIS PSD names with one replacement character where DiscIO decodes `Ã£Æ’Â»`.
 Contents are identical (content multiset equal); only those two file names
 differ. The launcher path has no such difference.
 
@@ -356,18 +356,18 @@ Offline results (`launcher.exe --pad-info`, `--pad-guid`, `--mapping`,
 
 | Case | Result |
 |---|---|
-| Pro 2 Nintendo `0300â€¦11010000`, `â€¦00020000`, `â€¦00000000` | mapping=nintendo â†’ Nintendo |
-| Pro 2 BT `0500â€¦00010000` (driver mapping fed) | mapping=nintendo â†’ Nintendo |
-| Pro 2 Switch-mode `0500â€¦fd216d04` (driver mapping fed) | mapping=nintendo â†’ Nintendo |
-| Ultimate `0300â€¦1330000011010000` | mapping=positional â†’ Generic (standard) |
-| 64 `0300â€¦1930000000000000` | mapping=positional â†’ Generic |
+| Pro 2 Nintendo `0300Ã¢â‚¬Â¦11010000`, `Ã¢â‚¬Â¦00020000`, `Ã¢â‚¬Â¦00000000` | mapping=nintendo Ã¢â€ â€™ Nintendo |
+| Pro 2 BT `0500Ã¢â‚¬Â¦00010000` (driver mapping fed) | mapping=nintendo Ã¢â€ â€™ Nintendo |
+| Pro 2 Switch-mode `0500Ã¢â‚¬Â¦fd216d04` (driver mapping fed) | mapping=nintendo Ã¢â€ â€™ Nintendo |
+| Ultimate `0300Ã¢â‚¬Â¦1330000011010000` | mapping=positional Ã¢â€ â€™ Generic (standard) |
+| 64 `0300Ã¢â‚¬Â¦1930000000000000` | mapping=positional Ã¢â€ â€™ Generic |
 | synthetic reversed D-pad | dpad=swapped |
 | generated generic profile + Nintendo detection | `migrate=yes` |
 | generated Nintendo profile + Nintendo detection | `migrate=no` |
 | custom profile (extra line) + Nintendo detection | `generated=no migrate=no` |
 | DualSense / Xbox / Switch Pro | unchanged (PlayStation / Xbox / Nintendo) |
 
-Generated bodies: Pro 2 â†’ `Buttons/A = Button B`; Ultimate â†’ `Button A`.
+Generated bodies: Pro 2 Ã¢â€ â€™ `Buttons/A = Button B`; Ultimate Ã¢â€ â€™ `Button A`.
 
 Profiles are created by **both** programs, because RecompLauncher starts
 `game.exe` directly and never runs `launcher.exe`:
@@ -574,6 +574,17 @@ rather than scraped.
 | Smoke (visible window) | `fps=59.9425`, `vps=59.94`, `speed=1`, 1042->1951 frames in 15 s (60.6), clean stop, 16 MB raw card created. Headless first-run occasionally reports 0 frames (stalled before the first presented frame); retry or use a window. |
 | Notes fix | the published body initially had a mojibake em dash from a non-ASCII byte; `gh release edit` replaced it and the body now matches `docs/release/release-notes-v0.4.1.md` exactly. The notes file is not inside the zip, so the artifact is unaffected. |
 
+Reference validation note: the hub confirmed WWE WMX8 v0.1.4 binds and reads
+buttons with a physical Xbox pad, so the design (canonical profile, class
+resolution, first-pad binding) is hardware-proven. Its EnsurePadBound fallback
+only runs when the profile's Device line does not match, which is why the
+GetDefaultDeviceString() defect (it returns the keyboard) never showed there:
+WMX8's canonical profile names the connected pad. The defect does bite with a
+stale profile - this port's Ghost Pad test - and is fixed by choosing the first
+SDL/ device. PlayStation pads are unaffected: PS4/PS5/DualSense/Edge report a
+non-Nintendo SDL type, resolve to positional and get the same canonical body as
+before (Buttons/A = Button A = Cross), except the D-pad is now plain instead of
+shoulder-gated.
 ## Release v0.4.4 (published 2026-11-17) - generic controller system
 
 | Field | Value |

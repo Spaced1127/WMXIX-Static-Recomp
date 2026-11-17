@@ -1,5 +1,5 @@
 #include "frontend_config.hpp"
-#include "controller_mapping.hpp"
+
 #include "dol_patch.hpp"
 #include "launcher_savestates.hpp"
 #include "moderngekko/game.hpp"
@@ -797,8 +797,11 @@ int main(int argc, char** argv)
   std::optional<std::string> pad_guid;
   std::optional<std::string> pad_mapping;
   std::optional<std::string> check_migration_dir;
-  moderngekko::frontend::ControllerLayout pad_layout =
-      moderngekko::frontend::ControllerLayout::Auto;
+  // Legacy --pad-layout value: accepted and ignored (the class is derived from
+  // the SDL gamepad type at runtime; see controller_class in config.ini).
+  std::string pad_layout;
+  // Canonical layout class from --controller-layout (auto|positional|nintendo).
+  std::string controller_class_override;
   for (int i = 1; i < argc; ++i)
   {
     if (std::string_view(argv[i]) == "-X11" || std::string_view(argv[i]) == "--x11")
@@ -825,95 +828,55 @@ int main(int argc, char** argv)
       check_migration_dir = argv[++i];
     else if (std::string_view(argv[i]) == "--write-pad-profile" && i + 1 < argc)
       write_pad_profile = argv[++i];
+    else if (std::string_view(argv[i]) == "--controller-layout" && i + 1 < argc)
+    {
+      moderngekko::frontend::ControllerClass parsed =
+          moderngekko::frontend::ControllerClass::Auto;
+      if (!moderngekko::frontend::ParseControllerClass(argv[++i], &parsed))
+      {
+        std::cerr << "--controller-layout must be auto, positional, nintendo or keyboard\n";
+        return 2;
+      }
+      controller_class_override =
+          moderngekko::frontend::ControllerClassName(parsed);
+    }
     else if (std::string_view(argv[i]) == "--pad-layout" && i + 1 < argc)
     {
-      const std::string_view layout = argv[++i];
-      if (layout == "xbox")
-        pad_layout = moderngekko::frontend::ControllerLayout::Xbox;
-      else if (layout == "playstation")
-        pad_layout = moderngekko::frontend::ControllerLayout::PlayStation;
-      else if (layout == "nintendo")
-        pad_layout = moderngekko::frontend::ControllerLayout::Nintendo;
-      else if (layout == "generic")
-        pad_layout = moderngekko::frontend::ControllerLayout::Generic;
-      else
-        pad_layout = moderngekko::frontend::ControllerLayout::Auto;
+      // Legacy (xbox/playstation/nintendo/generic). Kept parseable so old
+      // scripts and docs do not hard-fail; ignored. Use --controller-layout.
+      pad_layout = argv[++i];
     }
   }
 
   const fs::path user_directory =
       user_directory_override ? fs::path(*user_directory_override) : DefaultUserDirectory();
   const fs::path release_directory = ExecutableDirectory(argv[0]);
-  if (check_migration_dir)
+if (check_migration_dir)
   {
+    // Kept parseable for old scripts. Migration is gone: one static profile,
+    // never rewritten. Binding falls back to the first pad in the runtime.
     const fs::path dir(*check_migration_dir);
-    const auto detected = pad_layout; // pass --pad-layout <family> as the live result
-    std::cout << "generated="
-              << (moderngekko::frontend::ControllerConfigIsGenerated(dir) ? "yes" : "no")
-              << " migrate="
-              << (moderngekko::frontend::ControllerConfigNeedsMigration(dir, detected)
-                      ? "yes"
-                      : "no")
-              << '\n';
+    std::cout << "profile="
+              << (moderngekko::frontend::ControllerConfigExists(dir) ? "static"
+                                                                    : "missing")
+              << " migrate=no\n";
     return 0;
   }
   if (pad_info_guid)
   {
-    // Offline identification: GUID -> vendor/product -> live SDL mapping -> layout.
-    SDL_Init(SDL_INIT_GAMEPAD);
-    const auto identity = moderngekko::frontend::ParseControllerGuid(*pad_info_guid);
-    const auto mapping = pad_mapping
-                             ? ParseControllerMapping(*pad_mapping)
-                             : DetectControllerMapping(*pad_info_guid);
-    const auto layout =
-        mapping.nintendo_style
-            ? moderngekko::frontend::ControllerLayout::Nintendo
-            : moderngekko::frontend::DetectControllerLayout(pad_info_name, *pad_info_guid);
-    char ids[64];
-    std::snprintf(ids, sizeof(ids), "vid=0x%04X pid=0x%04X", identity.vendor,
-                  identity.product);
+    // Kept parseable. The layout class is resolved in the input layer from the
+    // pad's SDL type, so there is nothing per-GUID to report any more.
     std::cout << "guid=" << *pad_info_guid << '\n'
-              << "ids=" << (identity.has_ids ? ids : "none") << '\n'
-              << "mapping=" << (mapping.has_mapping ? (mapping.nintendo_style ? "nintendo" : "positional")
-                                                    : "none")
-              << '\n'
-              << "dpad=" << (mapping.dpad_reversed ? "swapped" : "normal") << '\n'
-              << "layout=" << moderngekko::frontend::ControllerLayoutLabel(layout) << '\n';
-    if (pad_mapping)
-      std::cout << "source=" << *pad_mapping << '\n';
-    if (const char *db = SDL_GetGamepadMappingForGUID(SDL_StringToGUID(pad_info_guid->c_str())))
-    {
-      std::cout << "db=" << db << '\n';
-      SDL_free(const_cast<char *>(db));
-    }
-    else
-      std::cout << "db=(none)\n";
+              << "class=auto\n"
+              << "layout=auto\n";
     return 0;
   }
   if (write_pad_profile)
   {
-    // Headless: write a profile for one device string. With --pad-guid the
-    // layout comes from the live SDL mapping, exactly like the UI path.
-    ControllerMappingInfo mapping;
-    auto resolved = pad_layout;
-    if (pad_guid)
-    {
-      SDL_Init(SDL_INIT_GAMEPAD);
-      mapping = pad_mapping ? ParseControllerMapping(*pad_mapping)
-                            : DetectControllerMapping(*pad_guid);
-      if (resolved == moderngekko::frontend::ControllerLayout::Auto)
-        resolved = mapping.nintendo_style
-                       ? moderngekko::frontend::ControllerLayout::Nintendo
-                       : moderngekko::frontend::DetectControllerLayout(
-                             *write_pad_profile, *pad_guid);
-    }
+    // Writes the canonical profile only when it is missing.
     std::string message;
-    const std::string_view guid_view =
-        pad_guid ? std::string_view(*pad_guid) : std::string_view{};
-    const bool ok = moderngekko::frontend::GenerateControllerConfig(
-        user_directory, *write_pad_profile, guid_view, &message, resolved,
-        mapping.dpad_reversed);
-    if (!ok)
+    if (!moderngekko::frontend::EnsureCanonicalPadProfile(
+            user_directory, *write_pad_profile, &message))
     {
       std::cerr << message << '\n';
       return 1;
@@ -921,6 +884,7 @@ int main(int argc, char** argv)
     std::cout << message << '\n';
     return 0;
   }
+
   if (extract_only)
   {
     ExtractionState extraction;
@@ -937,6 +901,8 @@ int main(int argc, char** argv)
   }
 
   auto config = moderngekko::frontend::LoadConfig(user_directory, true);
+  if (config && !controller_class_override.empty())
+    config.controller_class = controller_class_override;
   if (!config)
   {
     if (config_overrides.empty())
@@ -1248,24 +1214,19 @@ int main(int argc, char** argv)
   std::string selected_controller =
       configured_controllers.empty() ? config.controller : configured_controllers.front();
   int controller_index = FindController(controllers, selected_controller);
-  moderngekko::frontend::ControllerLayout controller_layout =
-      moderngekko::frontend::ControllerLayout::Auto;
+moderngekko::frontend::ControllerClass controller_class =
+      moderngekko::frontend::ControllerClass::Auto;
+  if (!moderngekko::frontend::ParseControllerClass(config.controller_class,
+                                                   &controller_class))
+    controller_class = moderngekko::frontend::ControllerClass::Auto;
   std::string controller_status;
   const auto select_controller = [&](int index)
   {
+    // Writes the canonical profile only when it is missing. Existing profiles
+    // (generated by older builds or hand-edited) are never touched.
     std::string message;
-    const auto mapping =
-        DetectControllerMapping(controllers[index].guid);
-    const auto resolved =
-        controller_layout != moderngekko::frontend::ControllerLayout::Auto
-            ? controller_layout
-            : (mapping.nintendo_style
-                   ? moderngekko::frontend::ControllerLayout::Nintendo
-                   : moderngekko::frontend::DetectControllerLayout(
-                         controllers[index].device, controllers[index].guid));
-    if (!moderngekko::frontend::GenerateControllerConfig(
-            user_directory, controllers[index].device, controllers[index].guid,
-            &message, resolved, mapping.dpad_reversed))
+    if (!moderngekko::frontend::EnsureCanonicalPadProfile(
+            user_directory, controllers[index].device, &message))
     {
       std::lock_guard lock(dialog.mutex);
       dialog.error = std::move(message);
@@ -1285,6 +1246,8 @@ int main(int argc, char** argv)
     config.controllers = configured_controllers;
     config.resolution = resolutions[resolution_index].text;
     config.show_fps_in_title = show_fps_in_title;
+    config.controller_class =
+        moderngekko::frontend::ControllerClassName(controller_class);
     controller_profile_exists = true;
     controller_status = std::move(message);
     return true;
@@ -1295,46 +1258,37 @@ int main(int argc, char** argv)
     {
       controller_profile_exists = true;
       configured_controllers = moderngekko::frontend::ReadConfiguredControllers(user_directory);
-      if (configured_controllers.empty())
-      {
-        std::lock_guard lock(dialog.mutex);
-        dialog.error = std::string(CONTROLLER_PROFILE_NAME) +
-                       " has no configured controller device";
-        return false;
-      }
-      selected_controller = configured_controllers.front();
+      if (!configured_controllers.empty())
+        selected_controller = configured_controllers.front();
       controller_index = FindController(controllers, selected_controller);
       controller_status = "Using existing " + std::string(CONTROLLER_PROFILE_NAME);
       return true;
     }
-    if (controller_index < 0)
+    // No profile yet: write the canonical one for the visible pad, or keyboard.
+    const std::string device =
+        controllers.empty() ? std::string("DInput/0/Keyboard Mouse")
+                            : controllers.front().device;
+    std::string message;
+    if (!moderngekko::frontend::EnsureCanonicalPadProfile(user_directory, device, &message))
     {
       std::lock_guard lock(dialog.mutex);
-      dialog.error = "Connect an SDL-compatible controller before playing";
+      dialog.error = std::move(message);
       return false;
     }
-    return select_controller(controller_index);
+    selected_controller = device;
+    configured_controllers = {device};
+    controller_profile_exists = true;
+    controller_status = std::move(message);
+    return true;
   };
   const auto refresh_controllers = [&]
   {
     controllers = EnumerateControllers();
     controller_index = FindController(controllers, selected_controller);
-    if (!controller_profile_exists)
-    {
-      if (controller_index < 0 && !controllers.empty())
-      {
-        controller_index = 0;
-        selected_controller = controllers.front().device;
-      }
-      if (controller_index >= 0)
-        select_controller(controller_index);
-      else
-        controller_status = "No SDL gamepad detected";
-    }
-    else
-    {
-      controller_status = "Using existing " + std::string(CONTROLLER_PROFILE_NAME);
-    }
+    controller_status =
+        controller_profile_exists ? "Using existing " + std::string(CONTROLLER_PROFILE_NAME)
+                                  : (controllers.empty() ? "No SDL gamepad detected"
+                                                         : "Canonical profile will be created");
   };
   refresh_controllers();
 
@@ -2278,49 +2232,29 @@ int main(int argc, char** argv)
       ImGui::Spacing();
       ImGui::TextDisabled("Button layout");
       ImGui::SetNextItemWidth(-1);
-      if (ImGui::BeginCombo("##controller_layout",
-                            moderngekko::frontend::ControllerLayoutLabel(controller_layout)))
+      if (ImGui::BeginCombo("##controller_class",
+                            moderngekko::frontend::ControllerClassName(controller_class)))
       {
-        using moderngekko::frontend::ControllerLayout;
-        constexpr ControllerLayout layouts[] = {
-            ControllerLayout::Auto,        ControllerLayout::Xbox,
-            ControllerLayout::PlayStation, ControllerLayout::Nintendo,
-            ControllerLayout::Generic};
-        for (const ControllerLayout option : layouts)
+        using moderngekko::frontend::ControllerClass;
+        constexpr ControllerClass classes[] = {ControllerClass::Auto,
+                                               ControllerClass::Positional,
+                                               ControllerClass::Nintendo};
+        for (const ControllerClass option : classes)
         {
-          const bool selected = controller_layout == option;
-          if (ImGui::Selectable(moderngekko::frontend::ControllerLayoutLabel(option), selected))
-            controller_layout = option;
+          const bool selected = controller_class == option;
+          if (ImGui::Selectable(moderngekko::frontend::ControllerClassName(option), selected))
+            controller_class = option;
           if (selected)
             ImGui::SetItemDefaultFocus();
         }
         ImGui::EndCombo();
       }
-      if (controller_index >= 0)
-      {
-        // Same resolution the generator uses: live mapping first, then the
-        // GUID's vendor/product. The name alone lies for 8BitDo
-        // ("Pro 2" is Nintendo mode over Bluetooth, standard over XInput).
-        const auto& pad = controllers[controller_index];
-        const auto pad_mapping = DetectControllerMapping(pad.guid);
-        const auto detected =
-            pad_mapping.has_mapping
-                ? (pad_mapping.nintendo_style
-                       ? moderngekko::frontend::ControllerLayout::Nintendo
-                       : moderngekko::frontend::DetectControllerLayout(pad.device, pad.guid))
-                : moderngekko::frontend::DetectControllerLayout(pad.device, pad.guid);
-        ImGui::TextDisabled("Detected: %s%s",
-                            moderngekko::frontend::ControllerLayoutLabel(detected),
-                            controller_layout == moderngekko::frontend::ControllerLayout::Auto
-                                ? " (auto)"
-                                : "");
-        if (pad_mapping.dpad_reversed)
-          ImGui::SameLine(), ImGui::TextDisabled("| D-pad L/R swapped (auto)");
-      }
+      ImGui::TextDisabled("Auto reads each pad's SDL type: positional, or nintendo "
+                          "(A/B and X/Y swap) for Switch-style pads.");
       ImGui::BeginDisabled(controller_index < 0);
-      const std::string replace_profile =
-          "Replace with generated " + std::string(GENERATED_PROFILE_LABEL);
-      if (ImGui::Button(replace_profile.c_str(), ImVec2(-1, 34 * S)))
+      const std::string use_profile =
+          "Use this controller (" + std::string(GENERATED_PROFILE_LABEL) + ")";
+      if (ImGui::Button(use_profile.c_str(), ImVec2(-1, 34 * S)))
         select_controller(controller_index);
       ImGui::EndDisabled();
       ImGui::TextDisabled("%s", controller_status.c_str());
@@ -2328,7 +2262,7 @@ int main(int argc, char** argv)
       ImGui::TextDisabled("Mapping");
       ImGui::TextWrapped("Cross = A, Circle = B, Square = X, Triangle = Y, R1 = Z, "
                          "Options = Start. D-pad = menu; L1 + D-pad = taunt.");
-      ImGui::TextDisabled("Profile: %s",
+      ImGui::TextDisabled("Profile: %s (one canonical file, never rewritten)",
                           (user_directory / "Config" /
                            std::string(CONTROLLER_PROFILE_NAME)).string().c_str());
       end_card();

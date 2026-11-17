@@ -418,7 +418,6 @@ if(MODERNGEKKO_ENABLE_DOLPHIN_RUNTIME)
         tools/netplay_compatibility.cpp
         tools/netplay_session.cpp
         tools/frontend_config.cpp
-        tools/controller_mapping.cpp
         tools/dol_patch.cpp
         vendor/dolphin/Externals/imgui/imgui/backends/imgui_impl_sdl3.cpp
         vendor/dolphin/Externals/imgui/imgui/backends/imgui_impl_sdlrenderer3.cpp)
@@ -518,7 +517,6 @@ set_target_properties(moderngekko-run PROPERTIES
     add_executable(moderngekko-launcher
         tools/moderngekko_launcher.cpp
         tools/frontend_config.cpp
-        tools/controller_mapping.cpp
         tools/dol_patch.cpp
         vendor/dolphin/Externals/imgui/imgui/backends/imgui_impl_sdl3.cpp
         vendor/dolphin/Externals/imgui/imgui/backends/imgui_impl_sdlrenderer3.cpp)

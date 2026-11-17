@@ -21,6 +21,11 @@
 #include "Core/System.h"
 #include "DolphinNoGUI/Platform.h"
 #include "InputCommon/ControllerInterface/Touch/InputOverrider.h"
+#include "InputCommon/ControllerInterface/ControllerInterface.h"
+#include "InputCommon/ControllerInterface/SDL/LayoutClass.h"
+#include "InputCommon/ControllerEmu/ControllerEmu.h"
+#include "InputCommon/InputConfig.h"
+#include "Core/HW/GCPad.h"
 #include "UICommon/UICommon.h"
 #include "VideoCommon/FrameDumper.h"
 #include "VideoCommon/PerformanceMetrics.h"
@@ -167,6 +172,37 @@ struct RuntimeAutomationState
   std::string last_command;
   std::string last_error;
 };
+
+// Bound device when the configured one is absent. Prefer the first SDL gamepad:
+// GetDefaultDeviceString() returns the highest-priority device, which is the
+// keyboard/mouse (the reference's helper bound the keyboard here, so a pad with
+// a stale profile line still produced no input). Keyboard only as last resort.
+std::string FirstGamepadDeviceString() {
+  for (const std::string &device : g_controller_interface.GetAllDeviceStrings()) {
+    if (device.rfind("SDL/", 0) == 0)
+      return device;
+  }
+  return g_controller_interface.GetDefaultDeviceString();
+}
+
+void EnsurePadBound()
+{
+  static std::string s_bound_device;
+  InputConfig* config = Pad::GetConfig();
+  if (!config || config->GetControllerCount() <= 0)
+    return;
+  ControllerEmu::EmulatedController* pad = config->GetController(0);
+  if (!pad || pad->IsDefaultDeviceConnected())
+    return;
+  const std::string device = FirstGamepadDeviceString();
+  if (device.empty() || device == s_bound_device)
+    return;
+  pad->SetDefaultDevice(device);
+  pad->UpdateReferences(g_controller_interface);
+  s_bound_device = device;
+  std::fprintf(stderr, "controller: configured device missing; bound \"%s\"\n",
+               device.c_str());
+}
 
 void EnsureAutomationDirectories(const std::filesystem::path& root)
 {
@@ -655,6 +691,18 @@ RuntimeCreateResult Runtime::Create(RuntimeConfig config) {
   const WindowSystemInfo wsi = impl->platform->GetWindowSystemInfo();
   UICommon::InitControllers(wsi);
   impl->controllers_initialized = true;
+  // Layout class: the host app controller_class (auto/positional/nintendo) is
+  // applied once, in the input layer, before any pad is read. The profile file
+  // is never touched: 0 = positional, 1 = nintendo, -1 = per pad.
+  if (impl->config.controller_class == "nintendo")
+    ciface::SDL::SetLayoutClassOverride(1);
+  else if (impl->config.controller_class == "positional")
+    ciface::SDL::SetLayoutClassOverride(0);
+  else
+    ciface::SDL::SetLayoutClassOverride(-1);
+  // First-pad fallback: when the configured device is absent, bind the first
+  // enumerated pad. In-memory only; GCPadNew.ini stays byte-identical.
+  EnsurePadBound();
   EnsureAutomationDirectories(impl->config.automation.directory);
   if (!impl->config.automation.directory.empty()) {
     for (int port = 0; port < 4; ++port)
@@ -817,6 +865,16 @@ RuntimeRunResult Runtime::Run() {
         });
   }
   std::jthread title_thread;
+  // Hot-plug: a pad that appears after launch is bound by the same helper the
+  // startup path uses. No profile write, no restart.
+  std::jthread pad_watch_thread([](std::stop_token stop_token) {
+    while (!stop_token.stop_requested())
+    {
+      for (int i = 0; i < 20 && !stop_token.stop_requested(); ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      EnsurePadBound();
+    }
+  });
   if (!m_impl->config.headless && m_impl->config.show_fps_in_title) {
     title_thread = std::jthread([](std::stop_token stop_token) {
       while (!stop_token.stop_requested()) {
@@ -827,6 +885,9 @@ RuntimeRunResult Runtime::Run() {
     });
   }
   m_impl->platform->MainLoop();
+  pad_watch_thread.request_stop();
+  if (pad_watch_thread.joinable())
+    pad_watch_thread.join();
   title_thread.request_stop();
   if (title_thread.joinable())
     title_thread.join();

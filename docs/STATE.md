@@ -325,15 +325,15 @@ Acceptance (same disc, both containers, project extractor):
 | launcher `--extract` on `.rvz` | 4227 | `3fc07252dc1232f8ca0268e5882099886604d49be96c49289d94dd2345531350` |
 
 0 files only in one side, 0 content differences. `sys/` also matches:
-`main.dol` `627b8997…9fb7`, `fst.bin` `27688b0f…2301`, `apploader.img`
-`5a45b70e…ad98b`, `boot.bin` `feaf9324…08c7`, `bi2.bin` `4c2ae33f…6b6a`.
+`main.dol` `627b8997â€¦9fb7`, `fst.bin` `27688b0fâ€¦2301`, `apploader.img`
+`5a45b70eâ€¦ad98b`, `boot.bin` `feaf9324â€¦08c7`, `bi2.bin` `4c2ae33fâ€¦6b6a`.
 
 `tools\rvz_extract.py` rebuilds the ISO byte for byte:
 `B84472A45F66C2EA968F18A4FEC7B9ABF44B0F1C6FD834E8727332F054E8FCB0` for both
 the original `.iso` and the RVZ-derived one.
 
 Known nuance: the dev pipeline (`gcdisc.py`) decodes two developer-leftover
-Shift-JIS PSD names with one replacement character where DiscIO decodes `・`.
+Shift-JIS PSD names with one replacement character where DiscIO decodes `ãƒ»`.
 Contents are identical (content multiset equal); only those two file names
 differ. The launcher path has no such difference.
 
@@ -356,18 +356,18 @@ Offline results (`launcher.exe --pad-info`, `--pad-guid`, `--mapping`,
 
 | Case | Result |
 |---|---|
-| Pro 2 Nintendo `0300…11010000`, `…00020000`, `…00000000` | mapping=nintendo → Nintendo |
-| Pro 2 BT `0500…00010000` (driver mapping fed) | mapping=nintendo → Nintendo |
-| Pro 2 Switch-mode `0500…fd216d04` (driver mapping fed) | mapping=nintendo → Nintendo |
-| Ultimate `0300…1330000011010000` | mapping=positional → Generic (standard) |
-| 64 `0300…1930000000000000` | mapping=positional → Generic |
+| Pro 2 Nintendo `0300â€¦11010000`, `â€¦00020000`, `â€¦00000000` | mapping=nintendo â†’ Nintendo |
+| Pro 2 BT `0500â€¦00010000` (driver mapping fed) | mapping=nintendo â†’ Nintendo |
+| Pro 2 Switch-mode `0500â€¦fd216d04` (driver mapping fed) | mapping=nintendo â†’ Nintendo |
+| Ultimate `0300â€¦1330000011010000` | mapping=positional â†’ Generic (standard) |
+| 64 `0300â€¦1930000000000000` | mapping=positional â†’ Generic |
 | synthetic reversed D-pad | dpad=swapped |
 | generated generic profile + Nintendo detection | `migrate=yes` |
 | generated Nintendo profile + Nintendo detection | `migrate=no` |
 | custom profile (extra line) + Nintendo detection | `generated=no migrate=no` |
 | DualSense / Xbox / Switch Pro | unchanged (PlayStation / Xbox / Nintendo) |
 
-Generated bodies: Pro 2 → `Buttons/A = Button B`; Ultimate → `Button A`.
+Generated bodies: Pro 2 â†’ `Buttons/A = Button B`; Ultimate â†’ `Button A`.
 
 Profiles are created by **both** programs, because RecompLauncher starts
 `game.exe` directly and never runs `launcher.exe`:
@@ -574,6 +574,29 @@ rather than scraped.
 | Smoke (visible window) | `fps=59.9425`, `vps=59.94`, `speed=1`, 1042->1951 frames in 15 s (60.6), clean stop, 16 MB raw card created. Headless first-run occasionally reports 0 frames (stalled before the first presented frame); retry or use a window. |
 | Notes fix | the published body initially had a mojibake em dash from a non-ASCII byte; `gh release edit` replaced it and the body now matches `docs/release/release-notes-v0.4.1.md` exactly. The notes file is not inside the zip, so the artifact is unaffected. |
 
+## Release v0.4.4 (published 2026-11-17) - generic controller system
+
+| Field | Value |
+|---|---|
+| Tag / commit | `v0.4.4` |
+| Release | https://github.com/Spaced1127/WMXIX-Static-Recomp/releases/tag/v0.4.4 |
+| Asset | `WMXIX-v0.4.4-Windows-x64.zip` + `SHA256SUMS.txt` |
+| SHA-256 | `327172E0A8ED78F958C6B7BE0E9EADA0BC209CD7EC273704C99531E3773C1061` |
+| Contents | 2652 entries, 0 game-data files |
+| Smoke | `fps=59.9399`, `speed=1`, canonical profile written once, Xbox pad bound |
+| Design | ported from WWE WMX8 v0.1.4 (docs/notes/controller-generic-design.md) |
+
+One static GCPadNew.ini (written only if missing, never rewritten), two classes
+(positional / nintendo: A<->B and X<->Y only), class from SDL_GetGamepadType with
+an 8BitDo vendor fallback, override `controller_class` / `--controller-layout`,
+first-SDL-gamepad binding in memory plus a 2 s hot-plug watcher. The generator,
+per-device tables, a>b rule, D-pad swap, migration and the 16 default profiles
+are deleted.
+
+Reference defects fixed here: (1) its `SetLayoutClassOverride` wrote an atomic
+its `ClassifyGamepad` never read, so the override was a no-op; (2) its
+`EnsurePadBound` used `GetDefaultDeviceString()`, which returns the keyboard, so
+the "first pad" fallback bound the keyboard.
 ## Release v0.4.3 (published 2026-11-16)
 
 | Field | Value |

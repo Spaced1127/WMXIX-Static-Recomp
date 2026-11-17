@@ -24,6 +24,9 @@ struct ConfigResult {
   std::string graphics_backend = "Vulkan";
   std::string controller;
   std::vector<std::string> controllers;
+  // Canonical layout class: "auto", "positional" or "nintendo". Applied in the
+  // input layer; it never selects or rewrites a profile file.
+  std::string controller_class = "auto";
   bool show_fps_in_title = true;
   bool fullscreen = false;
   int msaa = 1;
@@ -73,60 +76,20 @@ bool ControllerConfigExists(const std::filesystem::path &user_directory);
 bool EnsureMemoryCardSlotSettings(const std::filesystem::path &user_directory,
                                   std::string *message = nullptr);
 
-// Button layout families. SDL normalises every gamepad positionally, so an
-// Xbox pad and a DualSense already agree; Nintendo pads put their labelled A/B
-// and X/Y the other way round, which is what the Nintendo layout fixes.
-enum class ControllerLayout { Auto, Xbox, PlayStation, Nintendo, Generic };
-const char *ControllerLayoutLabel(ControllerLayout layout);
+// Canonical controller layout class. One static profile (positional SDL
+// bindings) is copied only when missing and never rewritten; the class is
+// applied in the input layer. Nintendo swaps A<->B and X<->Y only.
+enum class ControllerClass { Auto, Positional, Nintendo };
+const char *ControllerClassName(ControllerClass controller_class);
+// "auto", "positional"/"standard"/"default"/"xbox"/"playstation",
+// "nintendo"/"switch". Returns false for anything else.
+bool ParseControllerClass(std::string_view text, ControllerClass *out);
 
-// True when the file matches one of the auto-generated bodies, i.e. safe to
-// regenerate on a layout change. A hand-edited profile is left alone.
-bool ControllerConfigIsGenerated(const std::filesystem::path &user_directory);
-// Which generated layout the file matches, if any. Used to migrate profiles
-// written before mapping-based detection landed.
-bool MatchGeneratedControllerProfile(const std::filesystem::path &user_directory,
-                                     ControllerLayout *layout, bool *dpad_swap);
-// True when an existing auto-generated profile should be rewritten because the
-// live mapping now resolves to a Nintendo layout. Custom or manually forced
-// profiles are never migrated.
-bool ControllerConfigNeedsMigration(const std::filesystem::path &user_directory,
-                                    ControllerLayout detected);
-
-// GUID-level identification, following SDL's gamecontrollerdb semantics: the
-// SDL GUID carries the USB vendor/product, so an Edge or Elite is recognised by
-// hardware id rather than by a product name.
-struct ControllerIdentity {
-  unsigned short vendor = 0;
-  unsigned short product = 0;
-  bool has_ids = false;
-};
-ControllerIdentity ParseControllerGuid(std::string_view guid);
-ControllerLayout DetectControllerLayout(std::string_view device,
-                                        std::string_view guid = {});
-
-bool GenerateControllerConfig(const std::filesystem::path &user_directory,
-                              std::span<const std::string> controllers,
-                              std::span<const std::string> guids,
-                              std::string *message,
-                              ControllerLayout layout = ControllerLayout::Auto,
-                              bool dpad_swap = false);
-bool GenerateControllerConfig(const std::filesystem::path &user_directory,
-                              std::span<const std::string> controllers,
-                              std::string *message,
-                              ControllerLayout layout = ControllerLayout::Auto,
-                              bool dpad_swap = false);
-bool GenerateControllerConfig(const std::filesystem::path &user_directory,
-                              std::string_view controller, std::string_view guid,
-                              std::string *message,
-                              ControllerLayout layout = ControllerLayout::Auto,
-                              bool dpad_swap = false);
-bool GenerateControllerConfig(const std::filesystem::path &user_directory,
-                              std::string_view controller, std::string *message,
-                              ControllerLayout layout = ControllerLayout::Auto,
-                              bool dpad_swap = false);
-bool EnsureControllerConfig(const std::filesystem::path &user_directory,
-                            std::span<const std::string> controllers,
-                            std::string *message);
-bool EnsureControllerConfig(const std::filesystem::path &user_directory,
-                            std::string_view controller, std::string *message);
+// The canonical profile text for a device string (keyboard or GameCube pad).
+std::string CanonicalPadProfile(std::string_view device);
+// Writes the canonical profile only when the file is absent. Never rewrites an
+// existing profile, generated or hand-edited.
+bool EnsureCanonicalPadProfile(const std::filesystem::path &user_directory,
+                               std::string_view device,
+                               std::string *message = nullptr);
 } // namespace moderngekko::frontend

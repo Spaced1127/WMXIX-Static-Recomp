@@ -779,6 +779,13 @@ int main(int argc, char** argv)
   if (HWND console = GetConsoleWindow())
     ShowWindow(console, SW_HIDE);
 #endif
+  // Create the ImGui context before anything else in the process. Every helper
+  // reachable from here (config load, controller enumeration/profile write,
+  // memory-card migration, host prep) must be free to touch an ImGui UI surface
+  // without hitting "No current context".
+  IMGUI_CHECKVERSION();
+  if (!ImGui::GetCurrentContext())
+    ImGui::CreateContext();
   bool use_wayland = false;
   bool auto_play = false;
   std::vector<std::string> config_overrides;
@@ -1041,7 +1048,8 @@ int main(int argc, char** argv)
   SDL_SetRenderVSync(renderer, 1);
 
   IMGUI_CHECKVERSION();
-  ImGui::CreateContext();
+  if (!ImGui::GetCurrentContext())
+    ImGui::CreateContext();
   ImGuiIO& io = ImGui::GetIO();
   io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
   io.IniFilename = nullptr;

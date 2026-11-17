@@ -574,7 +574,57 @@ rather than scraped.
 | Smoke (visible window) | `fps=59.9425`, `vps=59.94`, `speed=1`, 1042->1951 frames in 15 s (60.6), clean stop, 16 MB raw card created. Headless first-run occasionally reports 0 frames (stalled before the first presented frame); retry or use a window. |
 | Notes fix | the published body initially had a mojibake em dash from a non-ASCII byte; `gh release edit` replaced it and the body now matches `docs/release/release-notes-v0.4.1.md` exactly. The notes file is not inside the zip, so the artifact is unaffected. |
 
+## Release v0.4.2 (published 2026-11-16)
+
+| Field | Value |
+|---|---|
+| Tag / commit | `v0.4.2` (see git log) |
+| Release | https://github.com/Spaced1127/WMXIX-Static-Recomp/releases/tag/v0.4.2 |
+| Asset | `WMXIX-v0.4.2-Windows-x64.zip` + `SHA256SUMS.txt` |
+| SHA-256 | `3C93111C49293FF4A958F77F2D8F4ED010A045A0F003B98ABF5E0873722FFAF4` |
+| Contents | 2668 entries, 0 game-data files, 110.3 MB unpacked |
+| Smoke (visible window) | `fps=59.9463`, `vps=59.9405`, `speed=1.00189`, clean stop, raw card created |
+| Fix | ImGui context is created at process start (launcher) and before `Runtime::Create` (game.exe); `OnScreenUI::Initialize` adopts an existing context. Removes the "No current context" `GetIO` abort. |
+| Provenance | binaries and shipped docs hash-match the build tree and `docs/release` at the tag |
+
 ## Open issues
+
+### v0.4.1: ImGui "No current context" abort at startup (fixed in v0.4.2)
+
+Reported by the user as a ModernGekko error dialog at launch:
+
+```text
+Condition: GImGui != 0 && "No current context. Did you call
+           ImGui::CreateContext() and ImGui::SetCurrentContext()?"
+File: ...\imgui.cpp  Line: 4985  Function: GetIO
+Ignore and continue?
+```
+
+The ImGui context was created in one place only, `OnScreenUI::Initialize`
+(VideoCommon), which runs when the renderer initialises - after the core has
+started. Any UI surface reached before that (OSD message queue, statistics,
+debug text) called `ImGui::GetIO()` with no context and tripped Dolphin's
+assert handler.
+
+v0.4.1 put more work before the renderer: controller detection and profile
+migration on every start, the memory-card slot migration, and the `GC/` tree
+creation (and v0.4.0's SDL teardown preceded all of it).
+
+Fix: `game.exe` creates the context before `Runtime::Create`;
+`launcher.exe` creates it at the top of `main`; `OnScreenUI::Initialize` only
+creates one when none exists, so the renderer still configures fonts, style and
+the vertex format. Both paths are idempotent.
+
+Not reproducible on this host with v0.4.1 or v0.4.2 (windowed, fullscreen, the
+user's config, an Xbox pad attached): the fix removes the precondition rather
+than a single call site. If it recurs, the dialog title and the exact
+File/Line/Function plus `Logs\ModernGekko.log` are needed.
+
+Note: the user's own install at `D:\Games\Recomps\wmxix-static-recomp` was still
+v0.4.0 (`game.exe` hash `008AD4D3...59C8`), and that build produced three
+`0xC0000005` dumps at 00:14/00:24/00:56 reading address 0x10 at
+`game.exe+0x6B042` - a null map dereference in runtime startup. The ImGui
+dialog is a different failure; both point at startup ordering.
 
 ### v0.4.1: memory card hung on "checking memory card in slot A" (fixed, pending release)
 

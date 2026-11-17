@@ -9,6 +9,7 @@
 #include "Common/StringUtil.h"
 
 #include <SDL3/SDL.h>
+#include <imgui.h>
 
 #include <charconv>
 #include <chrono>
@@ -553,6 +554,14 @@ int RunMain(int argc, char **argv) {
     return moderngekko::frontend::RunNetplayLobby(
         std::move(config), std::move(frontend_config), std::move(options));
   }
+
+  // The renderer creates the ImGui context in OnScreenUI::Initialize, which
+  // runs after the core starts. Any UI surface reachable before that (OSD
+  // queue, statistics, debug text) calls ImGui::GetIO() and would abort on
+  // "No current context". Create the context first; OnScreenUI adopts it.
+  IMGUI_CHECKVERSION();
+  if (!ImGui::GetCurrentContext())
+    ImGui::CreateContext();
 
   auto created = moderngekko::Runtime::Create(std::move(config));
   if (!created) {

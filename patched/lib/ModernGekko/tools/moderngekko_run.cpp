@@ -97,23 +97,34 @@ void EnsureDefaultControllerConfig(const std::filesystem::path &user_directory) 
   // including ones without a gamepad mapping. Count the same way so the written
   // "SDL/<id>/<name>" is the string the runtime resolves.
   std::unordered_map<std::string, int> seen;
+  std::vector<std::string> unmapped;
   if (ids) {
     for (int i = 0; i < count; ++i) {
-      const char *raw = SDL_IsGamepad(ids[i]) ? SDL_GetGamepadNameForID(ids[i])
-                                              : SDL_GetJoystickNameForID(ids[i]);
+      const bool gamepad = SDL_IsGamepad(ids[i]);
+      const char *raw = gamepad ? SDL_GetGamepadNameForID(ids[i])
+                                : SDL_GetJoystickNameForID(ids[i]);
       const std::string name = raw && *raw ? raw : "Gamepad";
       const int device_id = seen[name]++;
-      if (!SDL_IsGamepad(ids[i]))
-        continue;
       char guid_text[33] = {};
       SDL_GUIDToString(SDL_GetJoystickGUIDForID(ids[i]), guid_text,
                        sizeof(guid_text));
+      if (!gamepad) {
+        // SDL has no gamepad mapping for this device, so Dolphin would expose it
+        // with legacy "Button N" names only. Report it: a Bluetooth 8BitDo in
+        // the wrong mode lands here and looks like "not recognised".
+        unmapped.push_back("name=\"" + name + "\" guid=" + guid_text);
+        continue;
+      }
       devices.push_back("SDL/" + std::to_string(device_id) + "/" + name);
       guids.emplace_back(guid_text);
     }
     SDL_free(ids);
   }
   std::cerr << "controller: " << devices.size() << " SDL gamepad(s) detected\n";
+  for (const std::string &entry : unmapped)
+    std::cerr << "[input] joystick without a gamepad mapping: " << entry
+              << " (no profile written; put the pad in its XInput/Switch mode or "
+                 "enable SDL HIDAPI)\n";
 
   if (devices.empty())
     return;

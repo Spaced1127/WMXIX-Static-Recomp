@@ -654,6 +654,23 @@ ControllerLayout DetectControllerLayout(std::string_view device,
       return ControllerLayout::PlayStation;
     case 0x045E: // Microsoft (Xbox, Xbox Elite)
       return ControllerLayout::Xbox;
+    case 0x2DC8: // 8BitDo in its own HID mode (the "D" switch position)
+      // SDL's Windows database has no rows for 8BitDo over Bluetooth (the
+      // 0500... rows are Linux only), so a Bluetooth Pro 2 arrives here with
+      // no live mapping. SDL's own HIDAPI driver maps exactly these products
+      // as a:b1,b:b0 (Nintendo order); the Ultimate/64 keep the standard order.
+      switch (identity.product) {
+      case 0x6000: // SF30 Pro
+      case 0x6100: // SF30 Pro, Bluetooth
+      case 0x6001: // SN30 Pro
+      case 0x6101: // SN30 Pro, Bluetooth
+      case 0x6003: // Pro 2
+      case 0x6006: // Pro 2, Bluetooth
+      case 0x6009: // Pro 3
+        return ControllerLayout::Nintendo;
+      default:
+        return ControllerLayout::Generic;
+      }
     default:
       return ControllerLayout::Generic;
     }

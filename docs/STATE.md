@@ -574,6 +574,18 @@ rather than scraped.
 | Smoke (visible window) | `fps=59.9425`, `vps=59.94`, `speed=1`, 1042->1951 frames in 15 s (60.6), clean stop, 16 MB raw card created. Headless first-run occasionally reports 0 frames (stalled before the first presented frame); retry or use a window. |
 | Notes fix | the published body initially had a mojibake em dash from a non-ASCII byte; `gh release edit` replaced it and the body now matches `docs/release/release-notes-v0.4.1.md` exactly. The notes file is not inside the zip, so the artifact is unaffected. |
 
+## Release v0.4.3 (published 2026-11-16)
+
+| Field | Value |
+|---|---|
+| Tag / commit | `v0.4.3` |
+| Release | https://github.com/Spaced1127/WMXIX-Static-Recomp/releases/tag/v0.4.3 |
+| Asset | `WMXIX-v0.4.3-Windows-x64.zip` + `SHA256SUMS.txt` |
+| SHA-256 | `714CAD7BECDE2204A9F38F03D0DCCED2778E6EB650E6D975C06B7B0CB0A29A0C` |
+| Contents | 2668 entries, 0 game-data files, 110.3 MB unpacked |
+| Smoke (visible window) | `fps=59.9396`, `speed=1`, 73->800 frames in 12 s (60.6), clean stop, raw card created |
+| Fix | 8BitDo HID products resolve by product id when SDL has no live mapping (SDL's Windows DB has no 8BitDo Bluetooth rows); unmapped joysticks are named in the startup log. Matrix now 22/22. |
+
 ## Release v0.4.2 (published 2026-11-16)
 
 | Field | Value |
@@ -588,6 +600,39 @@ rather than scraped.
 | Provenance | binaries and shipped docs hash-match the build tree and `docs/release` at the tag |
 
 ## Open issues
+
+### 8BitDo over Bluetooth: A/B swapped / pad not seen (fixed in v0.4.3)
+
+Player report (v0.4.0): "I am using an 8bitdo pro controller over bluetooth and
+it isn't being recognized." Older report (v0.3.2): "8 bitdo controls are
+backwards (A and B and also left and right?) dualedge doesn't read at all."
+
+Root cause found offline: SDL's **Windows** controller database has no 8BitDo
+Bluetooth rows. The `05000000c82d00000660000000010000` row ("8BitDo Pro 2",
+`a:b1,b:b0`) lives inside the `SDL_JOYSTICK_LINUX` block
+(`vendor/.../SDL/src/joystick/SDL_gamepad_db.h`). On Windows a Bluetooth Pro 2
+only gets a mapping from SDL's HIDAPI driver at open time; without it,
+`SDL_GetGamepadMappingForGUID` returns NULL, layout fell back to vendor 0x2DC8
+(not in the table) -> Generic -> standard positional body -> A/B and X/Y swapped
+against the labels. If SDL also did not classify the device as a gamepad, the
+enumeration skipped it entirely and no profile was written at all.
+
+Fix: `DetectControllerLayout` resolves 8BitDo's own ids by product, matching
+SDL's HIDAPI driver: Nintendo order for SF30 Pro 0x6000/0x6100, SN30 Pro
+0x6001/0x6101, Pro 2 0x6003/0x6006, Pro 3 0x6009; standard order for the rest of
+0x2DC8 (Ultimate 0x6012, 64). A live mapping still takes precedence, so USB and
+XInput modes are unchanged, and existing generic profiles migrate because
+detection now reports Nintendo. Unmapped joysticks are now named in the startup
+log (`[input] joystick without a gamepad mapping: ...`).
+
+DualSense Edge re-verified end to end: 054C:0DF2 -> PlayStation on USB
+(`030000004c050000f20d000000007801`) and Bluetooth
+(`050000004c050000f20d000000000000`), `dpad=normal`. The v0.3.2 "Edge doesn't
+read at all" predates Edge support (v0.4.0).
+
+Not verified on hardware: no 8BitDo or Edge on this host. The matrix
+(`tools\test-pad-layouts.ps1`, 22 cases) uses the real GUIDs plus SDL's driver
+mapping strings.
 
 ### v0.4.1: ImGui "No current context" abort at startup (fixed in v0.4.2)
 

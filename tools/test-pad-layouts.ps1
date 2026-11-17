@@ -50,6 +50,10 @@ $cases = @(
     @{ Id='edge-usb';      Guid='030000004c050000f20d000000007801'; Name='DualSense Edge Wireless Controller'; Map=$mPS5; Layout='PlayStation'; Dpad='normal'; A='Button A' }
     @{ Id='edge-bt';       Guid='050000004c050000f20d000000000000'; Name='DualSense Edge Wireless Controller'; Map=$mPS5; Layout='PlayStation'; Dpad='normal'; A='Button A' }
     @{ Id='8bitdo-pro2-n'; Guid='03000000c82d00000660000011010000'; Name='8BitDo Pro 2';                   Map=$m8BitDo;  Layout='Nintendo';    Dpad='normal'; A='Button B' }
+    @{ Id='8bitdo-pro2-bt'; Guid='05000000c82d00000660000000010000'; Name='8BitDo Pro 2';                 Map=$null;     Layout='Nintendo';    Dpad='normal'; A='Button B' }
+    @{ Id='8bitdo-pro2-btm'; Guid='05000000c82d00000660000000010000'; Name='8BitDo Pro 2';                Map=$m8BitDo;  Layout='Nintendo';    Dpad='normal'; A='Button B' }
+    @{ Id='switch-pro-bt';  Guid='050000007e0500000920000000000000'; Name='Pro Controller';               Map=$null;     Layout='Nintendo';    Dpad='normal'; A='Button B' }
+    @{ Id='8bitdo-pro2-btx'; Guid='050000005e040000e002000003090000'; Name='8BitDo Pro 2';                Map=$null;     Layout='Xbox';        Dpad='normal'; A='Button A' }
     @{ Id='8bitdo-pro2-x'; Guid='030000005e040000e002000000007801'; Name='8BitDo Pro 2';                   Map=$mXInput;  Layout='Xbox';        Dpad='normal'; A='Button A' }
     @{ Id='8bitdo-ult';    Guid='03000000c82d00001330000011010000'; Name='8BitDo Ultimate Wireless Controller'; Map=$null; Layout='Generic';   Dpad='normal'; A='Button A' }
     @{ Id='8bitdo-64';     Guid='03000000c82d00001930000000000000'; Name='8BitDo 64';                      Map=$null;     Layout='Generic';     Dpad='normal'; A='Button A' }

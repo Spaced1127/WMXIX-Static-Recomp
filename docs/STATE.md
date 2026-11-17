@@ -578,7 +578,7 @@ rather than scraped.
 
 | Field | Value |
 |---|---|
-| Tag / commit | `v0.4.4` |
+| Tag / commit | `v0.4.4` / `2439bf1` |
 | Release | https://github.com/Spaced1127/WMXIX-Static-Recomp/releases/tag/v0.4.4 |
 | Asset | `WMXIX-v0.4.4-Windows-x64.zip` + `SHA256SUMS.txt` |
 | SHA-256 | `327172E0A8ED78F958C6B7BE0E9EADA0BC209CD7EC273704C99531E3773C1061` |
